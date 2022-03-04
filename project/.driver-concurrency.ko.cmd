@@ -1,1 +1,0 @@
-cmd_/home/ubuntu/Documents/SOA/project/driver-concurrency.ko := ld -r  -m elf_x86_64  --build-id=sha1  -T scripts/module.lds -o /home/ubuntu/Documents/SOA/project/driver-concurrency.ko /home/ubuntu/Documents/SOA/project/driver-concurrency.o /home/ubuntu/Documents/SOA/project/driver-concurrency.mod.o;  true

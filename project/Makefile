@@ -1,4 +1,4 @@
-obj-m += driver-concurrency.o
+obj-m += multi-flow-device.o
 
 all:
 	make -C /lib/modules/$(shell uname -r)/build M=$(PWD) modules 

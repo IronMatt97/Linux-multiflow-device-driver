@@ -12,8 +12,8 @@
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Matteo Ferretti");
 
-#define MODNAME "MULTI-FLOW-DEVICE-FILE"
-#define DEVICE_NAME "cdev"
+#define MODNAME "MULTI-FLOW-DEVICE"
+#define DEVICE_NAME "mfdev"
 
 #define get_major(session)	MAJOR(session->f_inode->i_rdev)
 #define get_minor(session)	MINOR(session->f_inode->i_rdev)
@@ -22,7 +22,6 @@ MODULE_AUTHOR("Matteo Ferretti");
 
 typedef struct _object_state
 {
-	struct mutex operation_synchronizer;
    spinlock_t spinlock;
 	int prio;   //0 for low priority, 1 for high priority
    int opMode; //0 for non-blocking rw ops, 1 for blocking rw ops
@@ -67,25 +66,18 @@ static ssize_t dev_write(struct file *filp, const char *buff, size_t len, loff_t
    if(the_object->opMode == 0)
       spin_trylock(&(the_object->spinlock));  
    else if(the_object->opMode == 1)
-      mutex_lock(&(the_object->operation_synchronizer));
+      spin_lock(&(the_object->spinlock));
       
    
    //if offset too large
    if(*off >= OBJECT_MAX_SIZE) 
    {
-      if(the_object->opMode == 0)
-         spin_unlock(&(the_object->spinlock));
-      else if(the_object->opMode == 1)
-         mutex_unlock(&(the_object->operation_synchronizer));
-         
+      spin_unlock(&(the_object->spinlock));
 	   return -ENOSPC;//no space left on device
    }
    //if offset beyond the current stream size
-   if(prio == 0 && *off > the_object->valid_bytes_lo || prio == 1 && *off > the_object->valid_bytes_hi) {
- 	   if(the_object->opMode == 0)
-         spin_unlock(&(the_object->spinlock));
-      else if(the_object->opMode == 1)
-         mutex_unlock(&(the_object->operation_synchronizer));
+   if((prio == 0 && *off > the_object->valid_bytes_lo) || (prio == 1 && *off > the_object->valid_bytes_hi)) {
+      spin_unlock(&(the_object->spinlock));
 	   return -ENOSR;//out of stream resources
    } 
    
@@ -101,10 +93,7 @@ static ssize_t dev_write(struct file *filp, const char *buff, size_t len, loff_t
    else if(prio == 1)
       the_object->valid_bytes_hi = *off;
 
-   if(the_object->opMode == 0)
-      spin_unlock(&(the_object->spinlock));
-   else if(the_object->opMode == 1)
-      mutex_unlock(&(the_object->operation_synchronizer));
+   spin_unlock(&(the_object->spinlock));
 
    return len - ret;
 }
@@ -113,23 +102,19 @@ static ssize_t dev_read(struct file *filp, char *buff, size_t len, loff_t *off)
 {
    int minor = get_minor(filp);
    int ret;
-   object_state *the_object;
-
-   the_object = objects + minor;
+   object_state *the_object = objects + minor;;
    int prio = the_object->prio;
+   
    printk("%s: somebody called a read on dev with [major,minor] number [%d,%d]\n",MODNAME,get_major(filp),get_minor(filp));
 
    //need to lock in any case
    if(the_object->opMode == 0)
       spin_trylock(&(the_object->spinlock));  
    else if(the_object->opMode == 1)
-      mutex_lock(&(the_object->operation_synchronizer));
-   if(prio == 0 && *off > the_object->valid_bytes_lo || prio == 1 && *off > the_object->valid_bytes_hi)
+      spin_lock(&(the_object->spinlock));
+   if((prio == 0 && *off > the_object->valid_bytes_lo) || (prio == 1 && *off > the_object->valid_bytes_hi))
    {
- 	   if(the_object->opMode == 0)
-         spin_unlock(&(the_object->spinlock));
-      else if(the_object->opMode == 1)
-         mutex_unlock(&(the_object->operation_synchronizer));
+      spin_unlock(&(the_object->spinlock));
 	   return 0;
    } 
    if(prio == 0 && (the_object->valid_bytes_lo - *off) < len) 
@@ -141,10 +126,7 @@ static ssize_t dev_read(struct file *filp, char *buff, size_t len, loff_t *off)
    else if(prio==1)
       ret = copy_to_user(buff,&(the_object->high_priority_flow[*off]),len);
    *off += (len - ret);
-   if(the_object->opMode == 0)
-         spin_unlock(&(the_object->spinlock));
-      else if(the_object->opMode == 1)
-         mutex_unlock(&(the_object->operation_synchronizer));
+   spin_unlock(&(the_object->spinlock));
 
    return len - ret;
 }
@@ -166,7 +148,7 @@ static long dev_ioctl(struct file *filp, unsigned int command, unsigned long par
       the_object->opMode = 0;
    else if(command == 3)
       the_object->opMode = 1;
-   if (param!=NULL)
+   else if (command == 4)
       the_object->awake_timeout = param;
    
    return 0;
@@ -187,7 +169,7 @@ int init_module(void)
 	//initialize the drive internal state
 	for(i=0;i<MINORS;i++)
    {
-		mutex_init(&(objects[i].operation_synchronizer));
+		spin_lock_init(&(objects[i].spinlock));
       objects[i].awake_timeout=500;
       objects[i].opMode=0;
       objects[i].prio=0;
@@ -215,7 +197,7 @@ revert_allocation:
 	for(;i>=0;i--)
    {
 		free_page((unsigned long)objects[i].low_priority_flow);
-      free_page((unsigned long)objects[i].high_priority_flow;
+      free_page((unsigned long)objects[i].high_priority_flow);
 	}
 	return -ENOMEM;
 }

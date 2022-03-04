@@ -1,11 +1,18 @@
 #include <linux/module.h>
+#define INCLUDE_VERMAGIC
+#include <linux/build-salt.h>
+#include <linux/elfnote-lto.h>
 #include <linux/vermagic.h>
 #include <linux/compiler.h>
 
+BUILD_SALT;
+BUILD_LTO_INFO;
+
 MODULE_INFO(vermagic, VERMAGIC_STRING);
+MODULE_INFO(name, KBUILD_MODNAME);
 
 __visible struct module __this_module
-__attribute__((section(".gnu.linkonce.this_module"))) = {
+__section(".gnu.linkonce.this_module") = {
 	.name = KBUILD_MODNAME,
 	.init = init_module,
 #ifdef CONFIG_MODULE_UNLOAD
@@ -14,34 +21,30 @@ __attribute__((section(".gnu.linkonce.this_module"))) = {
 	.arch = MODULE_ARCH_INIT,
 };
 
-#ifdef RETPOLINE
+#ifdef CONFIG_RETPOLINE
 MODULE_INFO(retpoline, "Y");
 #endif
 
 static const struct modversion_info ____versions[]
-__used
-__attribute__((section("__versions"))) = {
-	{ 0x881e648f, __VMLINUX_SYMBOL_STR(module_layout) },
-	{ 0x6bc3fbc0, __VMLINUX_SYMBOL_STR(__unregister_chrdev) },
-	{ 0x4302d0eb, __VMLINUX_SYMBOL_STR(free_pages) },
-	{ 0x2022640d, __VMLINUX_SYMBOL_STR(__register_chrdev) },
-	{ 0x93fca811, __VMLINUX_SYMBOL_STR(__get_free_pages) },
-	{ 0xf0c2bfce, __VMLINUX_SYMBOL_STR(__mutex_init) },
-	{ 0x362ef408, __VMLINUX_SYMBOL_STR(_copy_from_user) },
-	{ 0xb44ad4b3, __VMLINUX_SYMBOL_STR(_copy_to_user) },
-	{ 0x74aed678, __VMLINUX_SYMBOL_STR(mutex_lock) },
-	{ 0xccdfd527, __VMLINUX_SYMBOL_STR(mutex_trylock) },
-	{ 0xbf63e976, __VMLINUX_SYMBOL_STR(mutex_unlock) },
-	{ 0x27e1a049, __VMLINUX_SYMBOL_STR(printk) },
-	{ 0xbdfb6dbb, __VMLINUX_SYMBOL_STR(__fentry__) },
+__used __section("__versions") = {
+	{ 0x8e6402a9, "module_layout" },
+	{ 0x6bc3fbc0, "__unregister_chrdev" },
+	{ 0x4302d0eb, "free_pages" },
+	{ 0xcb720829, "__register_chrdev" },
+	{ 0x6a5cb5ee, "__get_free_pages" },
+	{ 0x977f511b, "__mutex_init" },
+	{ 0x6b10bee1, "_copy_to_user" },
+	{ 0x13c49cc2, "_copy_from_user" },
+	{ 0x88db9f48, "__check_object_size" },
+	{ 0x2ab7989d, "mutex_lock" },
+	{ 0x56470118, "__warn_printk" },
+	{ 0xf21017d9, "mutex_trylock" },
+	{ 0x409bcb62, "mutex_unlock" },
+	{ 0xc5850110, "printk" },
+	{ 0xbdfb6dbb, "__fentry__" },
 };
 
-static const char __module_depends[]
-__used
-__attribute__((section(".modinfo"))) =
-"depends=";
+MODULE_INFO(depends, "");
 
 
 MODULE_INFO(srcversion, "0E38A6B39B84355456AEE8C");
-
-MODULE_INFO(suserelease, "openSUSE Leap 15.0");
