@@ -25,7 +25,7 @@ void * the_thread(void* path)
 		printf("open error on device %s\n",device);
 		return NULL;
 	}
-	printf("device %s successfully opened\n",device);
+	printf("Init: device %s successfully opened\n",device);
 	
 	//Thread activity
 	//ioctl(fd,0);
@@ -33,8 +33,9 @@ void * the_thread(void* path)
 	//ioctl(fd,2);
 	//ioctl(fd,3);
 	//ioctl(fd,4,400);
-	for(i=0;i<3;i++)
-		write(fd,DATA,SIZE);
+	write(fd,DATA,SIZE);
+	close(fd);
+	printf("Init: device %s successfully closed\n",device);
 	return NULL;
 }
 
@@ -43,18 +44,19 @@ void * test_lo_thread_w(void* path)
 	char* device = (char*)path;
 	int fd = open(device,O_RDWR|O_APPEND);
 	sleep(1);
-	printf("opening device %s\n",device);
+	printf("LowPrioW: opening device %s\n",device);
 	if(fd == -1)
 	{
 		printf("open error on device %s\n",device);
 		return NULL;
 	}
-	printf("device %s successfully opened\n",device);
-	printf("I am a low priority thread writing in blocking mode\n");
+	printf("LowPrioW: device %s successfully opened\n",device);
 	ioctl(fd,0);
 	ioctl(fd,3);
 	char *message = "LowPrio\n";
 	write(fd,message,strlen(message));
+	close(fd);
+	printf("LowPrioW: device %s successfully closed\n",device);
 	return NULL;
 }
 void * test_lo_thread_r(void* path)
@@ -62,18 +64,20 @@ void * test_lo_thread_r(void* path)
 	char* device = (char*)path;
 	int fd = open(device,O_RDWR);
 	sleep(1);
-	printf("opening device %s\n",device);
+	printf("LowPrioR: opening device %s\n",device);
 	if(fd == -1)
 	{
 		printf("open error on device %s\n",device);
 		return NULL;
 	}
-	printf("device %s successfully opened\n",device);
-	printf("I am a low priority thread reading in blocking mode\n");
+	printf("LowPrioR: device %s successfully opened\n",device);
 	ioctl(fd,0);
 	ioctl(fd,3);
 	char *message = malloc(2);
 	read(fd,message,2);
+	printf("LowPrioR: è stato letto %s\n",message);
+	close(fd);
+	printf("LowPrioR: device %s successfully closed\n",device);
 	return NULL;
 }
 
@@ -82,18 +86,19 @@ void * test_hi_thread_w(void* path)
 	char* device = (char*)path;
 	int fd = open(device,O_RDWR|O_APPEND);
 	sleep(1);
-	printf("opening device %s\n",device);
+	printf("HighPrioW: opening device %s\n",device);
 	if(fd == -1)
 	{
 		printf("open error on device %s\n",device);
 		return NULL;
 	}
-	printf("device %s successfully opened\n",device);
-	printf("I am a high priority thread writing in blocking mode\n");
+	printf("HighPrioW: device %s successfully opened\n",device);
 	ioctl(fd,1);
 	ioctl(fd,3);
 	char *message = "HighPrio\n";
 	write(fd,message,strlen(message));
+	close(fd);
+	printf("HighPrioW: device %s successfully closed\n",device);
 	return NULL;
 }
 
@@ -102,18 +107,20 @@ void * test_hi_thread_r(void* path)
 	char* device = (char*)path;
 	int fd = open(device,O_RDWR);
 	sleep(1);
-	printf("opening device %s\n",device);
+	printf("HighPrioR: opening device %s\n",device);
 	if(fd == -1)
 	{
 		printf("open error on device %s\n",device);
 		return NULL;
 	}
-	printf("device %s successfully opened\n",device);
-	printf("I am a high priority thread reading in blocking mode\n");
+	printf("HighPrioR: device %s successfully opened\n",device);
 	ioctl(fd,1);
 	ioctl(fd,3);
 	char *message = malloc(2);
 	read(fd,message,2);
+	printf("HighPrioR: è stato letto %s\n",message);
+	close(fd);
+	printf("HighPrioR: device %s successfully closed\n",device);
 	return NULL;
 }
 
@@ -148,6 +155,7 @@ int main(int argc, char** argv)
 	{
 		printf("%s\n",minors_list[i]);
     }
+	sleep(1);
 	//Test implementation
 	//Per ogni file spawno due thread ad alta priorità e due a bassa priorità, dove ogni volta uno scrive ed uno legge
 	for(i=0;i<minors;i++)
@@ -155,7 +163,9 @@ int main(int argc, char** argv)
 		pthread_create(&tid,NULL,test_hi_thread_w,strdup(minors_list[i]));
 		pthread_create(&tid,NULL,test_hi_thread_w,strdup(minors_list[i]));
 		//pthread_create(&tid,NULL,test_hi_thread_r,strdup(minors_list[i]));
-		//pthread_create(&tid,NULL,test_lo_thread_w,strdup(minors_list[i]));
+		sleep(1);
+		pthread_create(&tid,NULL,test_lo_thread_w,strdup(minors_list[i]));
+		pthread_create(&tid,NULL,test_lo_thread_w,strdup(minors_list[i]));
 		//pthread_create(&tid,NULL,test_lo_thread_r,strdup(minors_list[i]));
     }
 
