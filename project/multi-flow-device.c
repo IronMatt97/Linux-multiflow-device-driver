@@ -7,10 +7,9 @@
 #include <linux/pid.h>
 #include <linux/tty.h>
 #include <linux/version.h>
-#include <linux/spinlock.h>
 
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Matteo Ferretti");
+MODULE_AUTHOR("Matteo Ferretti <0300049>");
 
 #define MODNAME "MULTI-FLOW-DEVICE"
 #define DEVICE_NAME "mfdev"
@@ -22,16 +21,14 @@ MODULE_AUTHOR("Matteo Ferretti");
 
 typedef struct _object_state
 {
-   struct mutex mutex;
-	int prio;   //0 for low priority, 1 for high priority
-   int opMode; //0 for non-blocking rw ops, 1 for blocking rw ops
+   struct mutex mutex;  //syncronization utility
+	int prio;   //0 = low priority usage, 1 = high priority usage
+   int opMode; //0 = non-blocking RW ops, 1 = blocking rw ops
    unsigned long awake_timeout; //timeout regulating the awake of blocking operations
-   int valid_bytes_lo;
-   int valid_bytes_hi;
-   char * low_priority_flow;
-   char * high_priority_flow;
-   long long int next_offset_lo;
-   long long int next_offset_hi;
+   int valid_bytes_lo;  //written bytes present in the low priority flow
+   int valid_bytes_hi;  //written bytes present in the high priority flow
+   char * low_priority_flow;  //low priority data stream
+   char * high_priority_flow; //high priority data stream
 } object_state;
 
 static int Major;
@@ -39,83 +36,89 @@ static int Major;
 #define MINORS 128
 object_state objects[MINORS];
 
-/* the actual driver */
+
+/*
+      DRIVER
+*/
 
 static int dev_open(struct inode *inode, struct file *file)
 {
    int minor = get_minor(file);
-   if(minor >= MINORS) return -ENODEV;
-   printk("%s: device file successfully opened for object with minor %d\n",MODNAME,minor);
+   if(minor >= MINORS)
+   {
+      printk("%s: ERROR - minor number %d out of handled range.\n",MODNAME,minor);
+      return -ENODEV;
+   }
+   printk("%s: OPENED DEVICE FILE WITH MINOR %d\n",MODNAME,minor);
    return 0;
 }
 
 static int dev_release(struct inode *inode, struct file *file)
 {
-   //int minor = get_minor(file);
-   printk("%s: device file closed\n",MODNAME);
-   //device closed by default nop
+   int minor = get_minor(file);
+   printk("%s: CLOSED DEVICE FILE WITH MINOR %d\n",MODNAME,minor);
    return 0;
 }
 
 static ssize_t dev_write(struct file *filp, const char *buff, size_t len, loff_t *off)
 {
-   int minor = get_minor(filp);
    int ret;
+   int minor = get_minor(filp);
    object_state *the_object = objects + minor;
    int prio = the_object->prio;
+
    printk("%s: WRITE CALLED ON [MAJ-%d,MIN-%d]\n",MODNAME,get_major(filp),get_minor(filp));
-   //need to lock in any case
+   printk("%s: \nPriority=%d\n*off=%lld\nvalid_bytes_hi=%d\nvalid_bytes_lo=%d\n",MODNAME,prio,*off,the_object->valid_bytes_hi,the_object->valid_bytes_lo);
+   
    if(the_object->opMode == 0)
       mutex_trylock(&(the_object->mutex));  
    else if(the_object->opMode == 1)
       mutex_lock(&(the_object->mutex));
-   printk("%s: Priority=%d\n*off=%lld\nvalid_bytes_hi=%d\nvalid_bytes_lo=%d\n",MODNAME,prio,*off,the_object->valid_bytes_hi,the_object->valid_bytes_lo);
    
    if(prio == 0)
-      *off += the_object->next_offset_lo;
+      *off += the_object->valid_bytes_lo;
    else if (prio == 1)
-      *off += the_object->next_offset_hi;
-   
+      *off += the_object->valid_bytes_hi;
+
+   printk("%s: L'offset è stato impostato su %lld\n",MODNAME,*off);
+
    //if offset too large
    if(*off >= OBJECT_MAX_SIZE) 
    {
       mutex_unlock(&(the_object->mutex));
-      printk("---ERROR: NO SPACE LEFT ON DEVICE\n");
-	   return -ENOSPC;//no space left on device
+      printk("%s: ERROR - No space left on device\n",MODNAME);
+	   return -ENOSPC;
    }
    //if offset beyond the current stream size
-   if((prio=0 && *off > the_object->valid_bytes_lo) || (prio=1 && *off > the_object->valid_bytes_hi)) {
+   if((prio==0 && *off > the_object->valid_bytes_lo) || (prio==1 && *off > the_object->valid_bytes_hi)) {
       mutex_unlock(&(the_object->mutex));
-      printk("---ERROR: OUT OF STREAM RESOURCES\n");
-      printk("VALUES:\nprio=%d\n*off=%lld\nvalid_bytes_lo=%d\nvalid_bytes_hi=%d\n",prio,*off,the_object->valid_bytes_lo,the_object->valid_bytes_hi);
-	   return -ENOSR;//out of stream resources
+      printk("%s: ERROR - Out of stream resources\n",MODNAME);
+      return -ENOSR;
    }
    
    if((OBJECT_MAX_SIZE - *off) < len)
-   {
       len = OBJECT_MAX_SIZE - *off;
-   } 
+   
    
    if(prio == 0)
    {
+      printk("%s: Sto per copiare sulla low flow a offset %lld il buffer '%s' di lunghezza %ld",MODNAME,*off,buff,len);
       ret = copy_from_user(&(the_object->low_priority_flow[*off]),buff,len);
       *off += (len - ret);
       the_object->valid_bytes_lo = *off;
-      the_object->next_offset_lo = *off;
    }   
    else if(prio == 1)
    {
+      printk("%s: Sto per copiare sulla high flow a offset %lld il buffer '%s' di lunghezza %ld",MODNAME,*off,buff,len);
       ret = copy_from_user(&(the_object->high_priority_flow[*off]),buff,len);
       *off += (len - ret);
       the_object->valid_bytes_hi = *off;
-      the_object->next_offset_hi = *off;
    }
-      
-   mutex_unlock(&(the_object->mutex));
 
    printk("%s: FLOWS BEFORE RETURNING\nLOWPRIOFLOW: %s\nHIGHPRIOFLOW: %s\n",MODNAME, the_object->low_priority_flow, the_object->high_priority_flow);
-   
-   printk("%s: BEFORE RETURNING OFFSET VALUES:\nnext_offset_lo = %lld\nnext_offset_hi = %lld\n",MODNAME,the_object->next_offset_lo,the_object->next_offset_hi);
+   printk("%s: BEFORE RETURNING OFFSET VALUES:\nnext_offset_lo = %d\nnext_offset_hi = %d\n",MODNAME,the_object->valid_bytes_lo,the_object->valid_bytes_hi); 
+   mutex_unlock(&(the_object->mutex));
+
    return len - ret;
 }
 
@@ -123,17 +126,16 @@ static ssize_t dev_read(struct file *filp, char *buff, size_t len, loff_t *off)
 {
    int minor = get_minor(filp);
    int ret;
-   object_state *the_object = objects + minor;;
+   object_state *the_object = objects + minor;
    int prio = the_object->prio;
    
-   printk("%s: somebody called a read on dev with [major,minor] number [%d,%d]\n",MODNAME,get_major(filp),get_minor(filp));
+   printk("%s: READ CALLED ON [MAJ-%d,MIN-%d]\n",MODNAME,get_major(filp),get_minor(filp));
 
-   //need to lock in any case
    if(the_object->opMode == 0)
       mutex_trylock(&(the_object->mutex));  
    else if(the_object->opMode == 1)
       mutex_lock(&(the_object->mutex));
-   if((prio == 0 && *off > the_object->valid_bytes_lo) ||(prio == 1 && *off > the_object->valid_bytes_hi) )
+   if((prio == 0 && *off > the_object->valid_bytes_lo) || (prio == 1 && *off > the_object->valid_bytes_hi) )
    {
       mutex_unlock(&(the_object->mutex));
 	   return 0;
@@ -142,11 +144,22 @@ static ssize_t dev_read(struct file *filp, char *buff, size_t len, loff_t *off)
       len = the_object->valid_bytes_lo - *off;
    else if((prio == 1 && the_object->valid_bytes_hi - *off < len))
       len = the_object->valid_bytes_hi - *off;
+   
+
    if(prio==0)
+   {
       ret = copy_to_user(buff,&(the_object->low_priority_flow[*off]),len);
+      the_object->low_priority_flow += len;
+      the_object->valid_bytes_lo -= len;
+   }
    else if(prio==1)
+   {
       ret = copy_to_user(buff,&(the_object->high_priority_flow[*off]),len);
-   *off += (len - ret);
+      the_object->high_priority_flow += len;
+      the_object->valid_bytes_hi -= len;
+   }
+
+   printk("%s: lettura effettuata, gli stream ora sono:\nhigh: %s\nlow: %s\n",MODNAME,the_object->high_priority_flow,the_object->low_priority_flow);
    mutex_unlock(&(the_object->mutex));
 
    return len - ret;
@@ -196,8 +209,6 @@ int init_module(void)
       objects[i].prio=0;
 		objects[i].valid_bytes_hi = 0;
       objects[i].valid_bytes_lo = 0;
-      objects[i].next_offset_hi = 0;
-      objects[i].next_offset_lo = 0;
       objects[i].low_priority_flow = NULL;
 		objects[i].low_priority_flow = (char*)__get_free_page(GFP_KERNEL);
       objects[i].high_priority_flow = NULL;

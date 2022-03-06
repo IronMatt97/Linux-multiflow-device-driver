@@ -9,7 +9,7 @@
 int i;
 char buff[4096];
 
-#define DATA "Init\n"
+#define DATA "Init"
 #define SIZE strlen(DATA)
 
 void * the_thread(void* path)
@@ -19,7 +19,7 @@ void * the_thread(void* path)
 	
 	sleep(1);
 	printf("opening device %s\n",device);
-	fd = open(device,O_RDWR);
+	fd = open(device,O_RDWR|O_APPEND);
 	if(fd == -1)
 	{
 		printf("open error on device %s\n",device);
@@ -28,11 +28,16 @@ void * the_thread(void* path)
 	printf("Init: device %s successfully opened\n",device);
 	
 	//Thread activity
-	//ioctl(fd,0);
+	ioctl(fd,0);
 	//ioctl(fd,1);
 	//ioctl(fd,2);
-	//ioctl(fd,3);
+	ioctl(fd,3);
 	//ioctl(fd,4,400);
+	write(fd,DATA,SIZE);
+	close(fd);
+	fd = open(device,O_RDWR|O_APPEND);
+	ioctl(fd,3);
+	ioctl(fd,1);
 	write(fd,DATA,SIZE);
 	close(fd);
 	printf("Init: device %s successfully closed\n",device);
@@ -53,7 +58,7 @@ void * test_lo_thread_w(void* path)
 	printf("LowPrioW: device %s successfully opened\n",device);
 	ioctl(fd,0);
 	ioctl(fd,3);
-	char *message = "LowPrio\n";
+	char *message = "LowPrio";
 	write(fd,message,strlen(message));
 	close(fd);
 	printf("LowPrioW: device %s successfully closed\n",device);
@@ -95,7 +100,7 @@ void * test_hi_thread_w(void* path)
 	printf("HighPrioW: device %s successfully opened\n",device);
 	ioctl(fd,1);
 	ioctl(fd,3);
-	char *message = "HighPrio\n";
+	char *message = "HighPrio";
 	write(fd,message,strlen(message));
 	close(fd);
 	printf("HighPrioW: device %s successfully closed\n",device);
@@ -161,12 +166,17 @@ int main(int argc, char** argv)
 	for(i=0;i<minors;i++)
 	{
 		pthread_create(&tid,NULL,test_hi_thread_w,strdup(minors_list[i]));
-		pthread_create(&tid,NULL,test_hi_thread_w,strdup(minors_list[i]));
-		//pthread_create(&tid,NULL,test_hi_thread_r,strdup(minors_list[i]));
+		//pthread_create(&tid,NULL,test_hi_thread_w,strdup(minors_list[i]));
+		pthread_create(&tid,NULL,test_lo_thread_w,strdup(minors_list[i]));
+		//pthread_create(&tid,NULL,test_lo_thread_w,strdup(minors_list[i]));
 		sleep(1);
-		pthread_create(&tid,NULL,test_lo_thread_w,strdup(minors_list[i]));
-		pthread_create(&tid,NULL,test_lo_thread_w,strdup(minors_list[i]));
-		//pthread_create(&tid,NULL,test_lo_thread_r,strdup(minors_list[i]));
+		pthread_create(&tid,NULL,test_lo_thread_r,strdup(minors_list[i]));
+		pthread_create(&tid,NULL,test_lo_thread_r,strdup(minors_list[i]));
+		sleep(1);
+		pthread_create(&tid,NULL,test_hi_thread_r,strdup(minors_list[i]));
+		pthread_create(&tid,NULL,test_hi_thread_r,strdup(minors_list[i]));
+		
+		//pthread_create(&tid,NULL,test_hi_thread_r,strdup(minors_list[i]));
     }
 
     pause();
