@@ -932,6 +932,20 @@ deps_/home/ubuntu/Documents/SOA/project/multi-flow-device.o := \
   include/uapi/linux/tty_flags.h \
   include/uapi/linux/tty.h \
   include/generated/uapi/linux/version.h \
+  include/linux/slab.h \
+    $(wildcard include/config/DEBUG_SLAB) \
+    $(wildcard include/config/FAILSLAB) \
+    $(wildcard include/config/HAVE_HARDENED_USERCOPY_ALLOCATOR) \
+    $(wildcard include/config/SLAB) \
+    $(wildcard include/config/SLUB) \
+    $(wildcard include/config/SLOB) \
+    $(wildcard include/config/CC_IS_GCC) \
+    $(wildcard include/config/CLANG_VERSION) \
+  include/linux/percpu-refcount.h \
+  include/linux/kasan.h \
+    $(wildcard include/config/KASAN_STACK) \
+    $(wildcard include/config/KASAN_VMALLOC) \
+    $(wildcard include/config/KASAN_INLINE) \
 
 /home/ubuntu/Documents/SOA/project/multi-flow-device.o: $(deps_/home/ubuntu/Documents/SOA/project/multi-flow-device.o)
 

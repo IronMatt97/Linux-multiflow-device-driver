@@ -36,8 +36,8 @@ void * the_thread(void* path)
 	write(fd,DATA,SIZE);
 	close(fd);
 	fd = open(device,O_RDWR|O_APPEND);
-	ioctl(fd,3);
 	ioctl(fd,1);
+	ioctl(fd,3);
 	write(fd,DATA,SIZE);
 	close(fd);
 	printf("Init: device %s successfully closed\n",device);
@@ -165,16 +165,16 @@ int main(int argc, char** argv)
 	//Per ogni file spawno due thread ad alta priorità e due a bassa priorità, dove ogni volta uno scrive ed uno legge
 	for(i=0;i<minors;i++)
 	{
-		pthread_create(&tid,NULL,test_hi_thread_w,strdup(minors_list[i]));
+		//thread_create(&tid,NULL,test_hi_thread_w,strdup(minors_list[i]));
 		//pthread_create(&tid,NULL,test_hi_thread_w,strdup(minors_list[i]));
-		pthread_create(&tid,NULL,test_lo_thread_w,strdup(minors_list[i]));
 		//pthread_create(&tid,NULL,test_lo_thread_w,strdup(minors_list[i]));
-		sleep(1);
-		pthread_create(&tid,NULL,test_lo_thread_r,strdup(minors_list[i]));
-		pthread_create(&tid,NULL,test_lo_thread_r,strdup(minors_list[i]));
-		sleep(1);
-		pthread_create(&tid,NULL,test_hi_thread_r,strdup(minors_list[i]));
-		pthread_create(&tid,NULL,test_hi_thread_r,strdup(minors_list[i]));
+		//pthread_create(&tid,NULL,test_lo_thread_w,strdup(minors_list[i]));
+		//sleep(1);
+		//pthread_create(&tid,NULL,test_lo_thread_r,strdup(minors_list[i]));
+		//pthread_create(&tid,NULL,test_lo_thread_r,strdup(minors_list[i]));
+		//sleep(1);
+		//pthread_create(&tid,NULL,test_hi_thread_r,strdup(minors_list[i]));
+		//pthread_create(&tid,NULL,test_hi_thread_r,strdup(minors_list[i]));
 		
 		//pthread_create(&tid,NULL,test_hi_thread_r,strdup(minors_list[i]));
     }
