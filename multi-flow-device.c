@@ -2,6 +2,7 @@
 #define EXPORT_SYMTAB
 #include <linux/kernel.h>
 #include <linux/module.h>
+#include <linux/moduleparam.h>
 #include <linux/init.h>
 #include <linux/fs.h>
 #include <linux/sched.h>
@@ -22,6 +23,7 @@ MODULE_AUTHOR("Matteo Ferretti <0300049>");
 #define get_minor(session) MINOR(session->f_inode->i_rdev)
 
 #define OBJECT_MAX_SIZE (4096)
+
 
 typedef struct _object_state
 {
@@ -60,6 +62,8 @@ void work_function(struct work_struct *work)
    int ret;
    int ok;
    int len;
+   char * buff;
+   long long int off;
    packed_work *info;
    object_state *the_object;
 
@@ -75,6 +79,8 @@ void work_function(struct work_struct *work)
       if (!ok)
       {
          printk("%s: KWORKER DAEMON: REQUEST TIMEOUT - the requested write ('%s') on minor %d will not be performed.\n", MODNAME, info->buff,minor);
+         free_page((unsigned long)info->buff);
+         kfree(info);
          return;
       }
    }
@@ -84,6 +90,8 @@ void work_function(struct work_struct *work)
       if (ok == EBUSY)
       {
          printk("%s: KWORKER DAEMON: RESOURCE BUSY - the requested write ('%s') on minor %d will not be performed.\n", MODNAME, info->buff,minor);
+         free_page((unsigned long)info->buff);
+         kfree(info);
          return;
       }
    }
@@ -94,6 +102,8 @@ void work_function(struct work_struct *work)
    // if offset too large
    if ((info->off) >= OBJECT_MAX_SIZE)
    {
+      free_page((unsigned long)info->buff);
+      kfree(info);
       mutex_unlock(&(the_object->mutex_lo));
       wake_up(&(the_object->low_prio_queue));
       printk("%s: KWORKER DAEMON: ERROR - No space left on device\n", MODNAME);
@@ -102,22 +112,30 @@ void work_function(struct work_struct *work)
    // if offset beyond the current stream size
    if (((info->off) > the_object->valid_bytes_lo))
    {
+      free_page((unsigned long)info->buff);
+      kfree(info);
       mutex_unlock(&(the_object->mutex_lo));
       wake_up(&(the_object->low_prio_queue));
       printk("%s: KWORKER DAEMON: ERROR - Out of stream resources\n", MODNAME);
       return;
    }
+   
    len = info->len;
+   buff = info->buff;
+   off = info->off;
+
    if ((OBJECT_MAX_SIZE - (info->off)) < len)
       len = OBJECT_MAX_SIZE - (info->off);
 
-   ret = copy_from_user(&(the_object->low_priority_flow[(info->off)]), info->buff, len);
-   info->off += len - ret;
+   strncat(the_object->low_priority_flow,buff,len);
+   info->off +=len;
    the_object->valid_bytes_lo = (info->off);
    printk("%s: KWORKER DAEMON: WRITE OPERATION COMPLETED - uncopied bytes = %d\n",MODNAME,ret);
    printk("%s: KWORKER DAEMON: UPDATED FLOWS\nLOW_PRIORITY_FLOW: %s\nHIGH_PRIORITY_FLOW: %s\n", MODNAME, the_object->low_priority_flow, the_object->high_priority_flow);
-   mutex_unlock(&(the_object->mutex_hi));
-   wake_up(&(the_object->high_prio_queue));
+   free_page((unsigned long)info->buff);
+   kfree(info);
+   mutex_unlock(&(the_object->mutex_lo));
+   wake_up(&(the_object->low_prio_queue));
    return;
 }
 
@@ -179,8 +197,10 @@ static ssize_t dev_write(struct file *filp, const char *buff, size_t len, loff_t
             return -1;
          }
          info->filp = filp;
-         info->buff = buff;
+         //info->buff = buff;
          info->len = len;
+         info->buff = (char *)__get_free_page(GFP_KERNEL);
+         ret = copy_from_user((info->buff), buff, len);
          info->off = *off;
 
          __INIT_WORK(&(info->work), work_function, (unsigned long)(&(info->work)));
@@ -210,8 +230,10 @@ static ssize_t dev_write(struct file *filp, const char *buff, size_t len, loff_t
             return -1;
          }
          info->filp = filp;
-         info->buff = buff;
+         //info->buff = buff;
          info->len = len;
+         info->buff = (char *)__get_free_page(GFP_KERNEL);
+         ret = copy_from_user((info->buff), buff, len);
          info->off = *off;
 
          __INIT_WORK(&(info->work), work_function, (unsigned long)(&(info->work)));

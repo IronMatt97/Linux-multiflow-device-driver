@@ -162,7 +162,7 @@ int main(int argc, char** argv)
 	//Per ogni file spawno due thread ad alta priorità e due a bassa priorità, dove ogni volta uno scrive ed uno legge
 	for(i=0;i<minors;i++)
 	{
-		//thread_create(&tid,NULL,test_hi_thread_w,strdup(minors_list[i]));
+		//pthread_create(&tid,NULL,test_hi_thread_w,strdup(minors_list[i]));
 		//pthread_create(&tid,NULL,test_hi_thread_w,strdup(minors_list[i]));
 		//pthread_create(&tid,NULL,test_lo_thread_w,strdup(minors_list[i]));
 		//pthread_create(&tid,NULL,test_lo_thread_w,strdup(minors_list[i]));
