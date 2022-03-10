@@ -1,1 +1,0 @@
-cmd_/home/ubuntu/Documents/SOA/hello.ko := ld -r -m elf_x86_64  --build-id=sha1  -T scripts/module.lds -o /home/ubuntu/Documents/SOA/hello.ko /home/ubuntu/Documents/SOA/hello.o /home/ubuntu/Documents/SOA/hello.mod.o;  true

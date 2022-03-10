@@ -1,8 +1,0 @@
-dmesg - controllo dei messaggi dal circular buffer del printk (-c per cancellare, -t per visualizzare tail)
-Visibile anche con tail /var/log/syslog
-Leggi cosi il Major
-
-Dopo aver fatto l'insmod con il modulo, creare il nodo con mknod /dev/my_device c Major Minor(0)
-E ora posso scriverci sopra con echo 'ciao'>/dev/my_device
-Il programma che ho preso io già fa da solo queste cose
-
