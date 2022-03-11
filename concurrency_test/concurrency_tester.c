@@ -36,6 +36,9 @@ void * the_thread(void* path)
 	ioctl(fd,1);
 	ioctl(fd,4);
 	write(fd,DATA,SIZE);
+	ioctl(fd,5);
+	close(fd);
+	fd = open(device,O_RDWR|O_APPEND);
 	close(fd);
 	printf("Init: device %s successfully closed\n",device);
 	return NULL;

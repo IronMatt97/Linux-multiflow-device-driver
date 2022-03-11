@@ -15,6 +15,7 @@
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Matteo Ferretti <0300049>");
+MODULE_DESCRIPTION("A basic driver implementing multi-flow devices");
 
 #define MODNAME "MULTI-FLOW-DEVICE"
 #define DEVICE_NAME "mfdev"
@@ -24,13 +25,13 @@ MODULE_AUTHOR("Matteo Ferretti <0300049>");
 
 #define OBJECT_MAX_SIZE (4096)
 
-
 typedef struct _object_state
 {
    struct mutex mutex_hi;  // synchronization utilities
    struct mutex mutex_lo;
    int priorityMode;                  // 0 = low priority usage, 1 = high priority usage
    int blockingModeOn;                // 0 = non-blocking RW ops, 1 = blocking RW ops
+   int *isEnabled;
    unsigned long awake_timeout;       // timeout regulating the awake of blocking operations
    int valid_bytes_lo;                // written bytes present in the low priority flow
    int valid_bytes_hi;                // written bytes present in the high priority flow
@@ -54,6 +55,16 @@ static int Major;
 
 #define MINORS 128
 object_state objects[MINORS];
+int devices_state[MINORS];
+int high_bytes[MINORS];
+int low_bytes[MINORS];
+
+module_param_array(devices_state,int,NULL,S_IRUGO|S_IWUSR);
+module_param_array(high_bytes,int,NULL,S_IRUGO);
+module_param_array(low_bytes,int,NULL,S_IRUGO);
+MODULE_PARM_DESC(devices_state, "Array describing devices states (0 = disabled - 1 = enabled)");
+MODULE_PARM_DESC(high_bytes, "Array describing the number of current valid bytes in the high priority stream in every device.");
+MODULE_PARM_DESC(low_bytes, "Array describing the number of current valid bytes in the low priority stream in every device.");
 
 void work_function(struct work_struct *work)
 {
@@ -130,6 +141,7 @@ void work_function(struct work_struct *work)
    strncat(the_object->low_priority_flow,buff,len);
    info->off +=len;
    the_object->valid_bytes_lo = (info->off);
+   low_bytes[minor] = the_object->valid_bytes_lo;
    printk("%s: KWORKER DAEMON: WRITE OPERATION COMPLETED - uncopied bytes = %d\n",MODNAME,ret);
    printk("%s: KWORKER DAEMON: UPDATED FLOWS\nLOW_PRIORITY_FLOW: %s\nHIGH_PRIORITY_FLOW: %s\n", MODNAME, the_object->low_priority_flow, the_object->high_priority_flow);
    free_page((unsigned long)info->buff);
@@ -146,13 +158,24 @@ void work_function(struct work_struct *work)
 static int dev_open(struct inode *inode, struct file *file)
 {
    int minor = get_minor(file);
+   object_state *the_object;
+
    if (minor >= MINORS)
    {
       printk("%s: ERROR - minor number %d out of handled range.\n", MODNAME, minor);
-      return -ENODEV;
+      return -1;
    }
-   printk("%s: OPENED DEVICE FILE WITH MINOR %d\n", MODNAME, minor);
-   return 0;
+   the_object = objects + minor;
+   if(devices_state[minor] == 1)
+   {
+      printk("%s: OPENED DEVICE FILE WITH MINOR %d\n", MODNAME, minor);
+      return 0;
+   }
+   else
+   {
+      printk("%s: ERROR - requested device with minor number %d is currently disabled.\n", MODNAME, minor);
+      return -1;
+   }
 }
 
 static int dev_release(struct inode *inode, struct file *file)
@@ -274,12 +297,14 @@ static ssize_t dev_write(struct file *filp, const char *buff, size_t len, loff_t
       ret = copy_from_user(&(the_object->high_priority_flow[*off]), buff, len);
       *off += (len - ret);
       the_object->valid_bytes_hi = *off;
+      high_bytes[minor] = the_object->valid_bytes_hi;
    }
    else
    {
       ret = copy_from_user(&(the_object->low_priority_flow[*off]), buff, len);
       *off += (len - ret);
       the_object->valid_bytes_lo = *off;
+      low_bytes[minor] = the_object->valid_bytes_lo;
    }
 
    printk("%s: WRITE OPERATION COMPLETED - uncopied bytes = %d\n",MODNAME,ret);
@@ -370,6 +395,7 @@ static ssize_t dev_read(struct file *filp, char *buff, size_t len, loff_t *off)
       ret = copy_to_user(buff, &(the_object->high_priority_flow[*off]), len);
       the_object->high_priority_flow += len;
       the_object->valid_bytes_hi -= len;
+      high_bytes[minor] = the_object->valid_bytes_hi;
 
       printk("%s: READ OPERATION COMPLETED - unread bytes = %d\n",MODNAME,ret);
       printk("%s: UPDATED FLOWS\nLOW_PRIORITY_FLOW: %s\nHIGH_PRIORITY_FLOW: %s\n", MODNAME, the_object->low_priority_flow, the_object->high_priority_flow);
@@ -381,6 +407,7 @@ static ssize_t dev_read(struct file *filp, char *buff, size_t len, loff_t *off)
       ret = copy_to_user(buff, &(the_object->low_priority_flow[*off]), len);
       the_object->low_priority_flow += len;
       the_object->valid_bytes_lo -= len;
+      low_bytes[minor] = the_object->valid_bytes_lo;
 
       printk("%s: READ OPERATION COMPLETED - unread bytes = %d\n",MODNAME,ret);
       printk("%s: UPDATED FLOWS\nLOW_PRIORITY_FLOW: %s\nHIGH_PRIORITY_FLOW: %s\n", MODNAME, the_object->low_priority_flow, the_object->high_priority_flow);
@@ -418,6 +445,16 @@ static long dev_ioctl(struct file *filp, unsigned int command, unsigned long par
       case 4:
          the_object->awake_timeout = param;
          break;
+      case 5:
+         if(devices_state[minor] == 1)
+         {
+            devices_state[minor] = 0;
+         }
+         else
+         {
+            devices_state[minor] = 1;
+         }
+         break;
       default:
          printk("%s: IOCTL ERROR - unhandled command code (%d)\n",MODNAME,command);
   }
@@ -446,6 +483,10 @@ int init_module(void)
       objects[i].awake_timeout = 500;
       objects[i].blockingModeOn = 0;
       objects[i].priorityMode = 0;
+
+      devices_state[i] = 1;
+      objects[i].isEnabled = &devices_state[i];
+
       objects[i].valid_bytes_hi = 0;
       objects[i].valid_bytes_lo = 0;
       objects[i].low_priority_flow = NULL;
@@ -454,6 +495,9 @@ int init_module(void)
       objects[i].high_priority_flow = (char *)__get_free_page(GFP_KERNEL);
       if (objects[i].low_priority_flow == NULL || objects[i].high_priority_flow == NULL)
          goto revert_allocation;
+
+      low_bytes[i] = objects[i].valid_bytes_lo;
+      high_bytes[i] = objects[i].valid_bytes_hi;
    }
 
    Major = __register_chrdev(0, 0, 128, DEVICE_NAME, &fops);
