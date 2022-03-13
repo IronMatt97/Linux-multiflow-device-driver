@@ -7,178 +7,261 @@
 #include <sys/ioctl.h>
 
 int i;
+int action;
+int minors;
+unsigned long timeout;
+char **minors_list;
+pthread_t tid1, tid2, tid3, tid4;
 char buff[4096];
 
-#define DATA "Init"
-#define SIZE strlen(DATA)
+#define LOW_PRIORITY_DATA "Low_DATA"
+#define LOW_PRIORITY_DATA_LENGTH strlen(LOW_PRIORITY_DATA)
+#define HIGH_PRIORITY_DATA "High_DATA"
+#define HIGH_PRIORITY_DATA_LENGTH strlen(HIGH_PRIORITY_DATA)
+#define BYTES_TO_READ 2
 
-void * the_thread(void* path)
-{
-	int fd;
-	char* device = (char*)path;
-	
-	sleep(1);
-	printf("opening device %s\n",device);
-	fd = open(device,O_RDWR|O_APPEND);
-	if(fd == -1)
-	{
-		printf("open error on device %s\n",device);
-		return NULL;
-	}
-	printf("Init: device %s successfully opened\n",device);
-	
-	//Thread activity
-	ioctl(fd,0);
-	ioctl(fd,4);
-	write(fd,DATA,SIZE);
-	close(fd);
-	fd = open(device,O_RDWR|O_APPEND);
-	ioctl(fd,1);
-	ioctl(fd,4);
-	write(fd,DATA,SIZE);
-	ioctl(fd,5);
-	close(fd);
-	fd = open(device,O_RDWR|O_APPEND);
-	close(fd);
-	printf("Init: device %s successfully closed\n",device);
-	return NULL;
-}
-
-void * test_lo_thread_w(void* path)
+//A thread writing in the low priority stream in blocking mode
+void * low_priority_thread_w_b(void* path)
 {
 	char* device = (char*)path;
 	int fd = open(device,O_RDWR|O_APPEND);
-	sleep(1);
-	printf("LowPrioW: opening device %s\n",device);
 	if(fd == -1)
 	{
-		printf("open error on device %s\n",device);
+		printf("ERROR - something went wrong opening device %s. Returning...\n",device);
 		return NULL;
 	}
-	printf("LowPrioW: device %s successfully opened\n",device);
 	ioctl(fd,0);
 	ioctl(fd,3);
-	char *message = "LowPrio";
-	write(fd,message,strlen(message));
+	write(fd,LOW_PRIORITY_DATA,LOW_PRIORITY_DATA_LENGTH);
 	close(fd);
-	printf("LowPrioW: device %s successfully closed\n",device);
 	return NULL;
 }
-void * test_lo_thread_r(void* path)
-{
-	char* device = (char*)path;
-	int fd = open(device,O_RDWR);
-	sleep(1);
-	printf("LowPrioR: opening device %s\n",device);
-	if(fd == -1)
-	{
-		printf("open error on device %s\n",device);
-		return NULL;
-	}
-	printf("LowPrioR: device %s successfully opened\n",device);
-	ioctl(fd,0);
-	ioctl(fd,3);
-	char *message = malloc(2);
-	read(fd,message,2);
-	printf("LowPrioR: è stato letto %s\n",message);
-	close(fd);
-	printf("LowPrioR: device %s successfully closed\n",device);
-	return NULL;
-}
-
-void * test_hi_thread_w(void* path)
+//A thread writing in the low priority stream in non-blocking mode
+void * low_priority_thread_w_nb(void* path)
 {
 	char* device = (char*)path;
 	int fd = open(device,O_RDWR|O_APPEND);
-	sleep(1);
-	printf("HighPrioW: opening device %s\n",device);
 	if(fd == -1)
 	{
-		printf("open error on device %s\n",device);
+		printf("ERROR - something went wrong opening device %s. Returning...\n",device);
 		return NULL;
 	}
-	printf("HighPrioW: device %s successfully opened\n",device);
-	ioctl(fd,1);
-	ioctl(fd,3);
-	char *message = "HighPrio";
-	write(fd,message,strlen(message));
+	ioctl(fd,0);
+	ioctl(fd,2);
+	write(fd,LOW_PRIORITY_DATA,LOW_PRIORITY_DATA_LENGTH);
 	close(fd);
-	printf("HighPrioW: device %s successfully closed\n",device);
 	return NULL;
 }
-
-void * test_hi_thread_r(void* path)
+//A thread writing in the high priority stream in blocking mode
+void * high_priority_thread_w_b(void* path)
 {
 	char* device = (char*)path;
-	int fd = open(device,O_RDWR);
-	sleep(1);
-	printf("HighPrioR: opening device %s\n",device);
+	int fd = open(device,O_RDWR|O_APPEND);
 	if(fd == -1)
 	{
-		printf("open error on device %s\n",device);
+		printf("ERROR - something went wrong opening device %s. Returning...\n",device);
 		return NULL;
 	}
-	printf("HighPrioR: device %s successfully opened\n",device);
 	ioctl(fd,1);
 	ioctl(fd,3);
-	char *message = malloc(2);
-	read(fd,message,2);
-	printf("HighPrioR: è stato letto %s\n",message);
+	write(fd,HIGH_PRIORITY_DATA,HIGH_PRIORITY_DATA_LENGTH);
 	close(fd);
-	printf("HighPrioR: device %s successfully closed\n",device);
 	return NULL;
 }
-
+//A thread writing in the high priority stream in non-blocking mode
+void * high_priority_thread_w_nb(void* path)
+{
+	char* device = (char*)path;
+	int fd = open(device,O_RDWR|O_APPEND);
+	if(fd == -1)
+	{
+		printf("ERROR - something went wrong opening device %s. Returning...\n",device);
+		return NULL;
+	}
+	ioctl(fd,1);
+	ioctl(fd,2);
+	write(fd,HIGH_PRIORITY_DATA,HIGH_PRIORITY_DATA_LENGTH);
+	close(fd);
+	return NULL;
+}
+//A thread reading in the low priority stream in blocking mode
+void * low_priority_thread_r_b(void* path)
+{
+	char* device = (char*)path;
+	int fd = open(device,O_RDWR|O_APPEND);
+	if(fd == -1)
+	{
+		printf("ERROR - something went wrong opening device %s. Returning...\n",device);
+		return NULL;
+	}
+	ioctl(fd,0);
+	ioctl(fd,3);
+	char *read_data = malloc(BYTES_TO_READ);
+    read(fd, read_data, 2);
+	close(fd);
+	return NULL;
+}
+//A thread reading in the low priority stream in non-blocking mode
+void * low_priority_thread_r_nb(void* path)
+{
+	char* device = (char*)path;
+	int fd = open(device,O_RDWR|O_APPEND);
+	if(fd == -1)
+	{
+		printf("ERROR - something went wrong opening device %s. Returning...\n",device);
+		return NULL;
+	}
+	ioctl(fd,0);
+	ioctl(fd,2);
+	char *read_data = malloc(BYTES_TO_READ);
+    read(fd, read_data, 2);
+	close(fd);
+	return NULL;
+}
+//A thread reading in the high priority stream in blocking mode
+void * high_priority_thread_r_b(void* path)
+{
+	char* device = (char*)path;
+	int fd = open(device,O_RDWR|O_APPEND);
+	if(fd == -1)
+	{
+		printf("ERROR - something went wrong opening device %s. Returning...\n",device);
+		return NULL;
+	}
+	ioctl(fd,1);
+	ioctl(fd,3);
+	char *read_data = malloc(BYTES_TO_READ);
+    read(fd, read_data, 2);
+	close(fd);
+	return NULL;
+}
+//A thread reading in the high priority stream in non-blocking mode
+void * high_priority_thread_r_nb(void* path)
+{
+	char* device = (char*)path;
+	int fd = open(device,O_RDWR|O_APPEND);
+	if(fd == -1)
+	{
+		printf("ERROR - something went wrong opening device %s. Returning...\n",device);
+		return NULL;
+	}
+	ioctl(fd,1);
+	ioctl(fd,2);
+	char *read_data = malloc(BYTES_TO_READ);
+    read(fd, read_data, 2);
+	close(fd);
+	return NULL;
+}
 int main(int argc, char** argv)
 {
-	int ret;
 	int major = strtol(argv[2],NULL,10);
-    int minors = strtol(argv[3],NULL,10);
+    minors = strtol(argv[3],NULL,10);
     char *path = argv[1];
-    pthread_t tid;
-	char **minors_list = malloc(minors*sizeof(char*));
+	minors_list = malloc(minors*sizeof(char*));
 
-    if(argc<4)
-	{
-		printf("useg: prog pathname major minors\n");
-		return -1;
+    if (argc < 4)
+    {
+        printf("ERROR - WRONG PARAMETERS: usage -> prog pathname major minors\n");
+        return -1;
     }
-     
-	printf("creating %d minors for device %s with major %d\n",minors,path,major);
+    printf("\n----------Multi-flow device driver tester initialization started correctly.\n\n");
+    printf("\t...Creating %d minors for device %s (major %d)\n", minors, path, major);
+    for (i = 0; i < minors; i++)
+    {
+        sprintf(buff, "mknod %s%d c %d %i\n", path, i, major, i);
+        system(buff);
+        sprintf(buff, "%s%d", path, i);
+        minors_list[i] = malloc(32);
+        strcpy(minors_list[i], buff);
+    }
+    printf("\tSystem initialized. Minors list:\n");
+    for (i = 0; i < minors; i++)
+    {
+        printf("\t\t%s\n", minors_list[i]);
+    }
+	printf("\n\nThis is a testing program. Starting tests...\n");
+	printf("\n\tTest 1 - concurrent writes...\n");
 	for(i=0;i<minors;i++)
 	{
-		sprintf(buff,"mknod %s%d c %d %i\n",path,i,major,i);
-		system(buff);
-		sprintf(buff,"%s%d",path,i);
-		minors_list[i] = malloc(32);
-		strcpy(minors_list[i],buff);
-		pthread_create(&tid,NULL,the_thread,strdup(buff));
-    }
+		pthread_create(&tid1, NULL, low_priority_thread_w_b, strdup(minors_list[i]));
+		pthread_create(&tid2, NULL, low_priority_thread_w_b, strdup(minors_list[i]));
+		pthread_create(&tid3, NULL, low_priority_thread_w_nb, strdup(minors_list[i]));
+		pthread_create(&tid4, NULL, low_priority_thread_w_nb, strdup(minors_list[i]));
+		pthread_join(tid1,NULL);
+		pthread_join(tid2,NULL);
+		pthread_join(tid3,NULL);
+		pthread_join(tid4,NULL);
 
-	printf("Minors list:\n");
+		sleep(1);
+
+		pthread_create(&tid1, NULL, high_priority_thread_w_b, strdup(minors_list[i]));
+		pthread_create(&tid2, NULL, high_priority_thread_w_b, strdup(minors_list[i]));
+		pthread_create(&tid3, NULL, high_priority_thread_w_nb, strdup(minors_list[i]));
+		pthread_create(&tid4, NULL, high_priority_thread_w_nb, strdup(minors_list[i]));
+		pthread_join(tid1,NULL);
+		pthread_join(tid2,NULL);
+		pthread_join(tid3,NULL);
+		pthread_join(tid4,NULL);
+
+		sleep(1);
+	}
+	printf("\t\tdone.\n");
+
+	printf("\n\tTest 2 - concurrent reads...\n");
 	for(i=0;i<minors;i++)
 	{
-		printf("%s\n",minors_list[i]);
-    }
-	sleep(1);
-	//Test implementation
-	//Per ogni file spawno due thread ad alta priorità e due a bassa priorità, dove ogni volta uno scrive ed uno legge
+		pthread_create(&tid1, NULL, low_priority_thread_r_b, strdup(minors_list[i]));
+		pthread_create(&tid2, NULL, low_priority_thread_r_b, strdup(minors_list[i]));
+		pthread_create(&tid3, NULL, low_priority_thread_r_nb, strdup(minors_list[i]));
+		pthread_create(&tid4, NULL, low_priority_thread_r_nb, strdup(minors_list[i]));
+		pthread_join(tid1,NULL);
+		pthread_join(tid2,NULL);
+		pthread_join(tid3,NULL);
+		pthread_join(tid4,NULL);
+
+		sleep(1);
+
+		pthread_create(&tid1, NULL, high_priority_thread_r_b, strdup(minors_list[i]));
+		pthread_create(&tid2, NULL, high_priority_thread_r_b, strdup(minors_list[i]));
+		pthread_create(&tid3, NULL, high_priority_thread_r_nb, strdup(minors_list[i]));
+		pthread_create(&tid4, NULL, high_priority_thread_r_nb, strdup(minors_list[i]));
+		pthread_join(tid1,NULL);
+		pthread_join(tid2,NULL);
+		pthread_join(tid3,NULL);
+		pthread_join(tid4,NULL);
+
+		sleep(1);
+	}
+	printf("\t\tdone.\n");
+
+	printf("\n\tTest 3 - concurrent writes and reads...\n");
 	for(i=0;i<minors;i++)
 	{
-		//pthread_create(&tid,NULL,test_hi_thread_w,strdup(minors_list[i]));
-		//pthread_create(&tid,NULL,test_hi_thread_w,strdup(minors_list[i]));
-		//pthread_create(&tid,NULL,test_lo_thread_w,strdup(minors_list[i]));
-		//pthread_create(&tid,NULL,test_lo_thread_w,strdup(minors_list[i]));
-		//sleep(1);
-		//pthread_create(&tid,NULL,test_lo_thread_r,strdup(minors_list[i]));
-		//pthread_create(&tid,NULL,test_lo_thread_r,strdup(minors_list[i]));
-		//sleep(1);
-		//pthread_create(&tid,NULL,test_hi_thread_r,strdup(minors_list[i]));
-		//pthread_create(&tid,NULL,test_hi_thread_r,strdup(minors_list[i]));
-		
-		//pthread_create(&tid,NULL,test_hi_thread_r,strdup(minors_list[i]));
-    }
+		pthread_create(&tid1, NULL, low_priority_thread_w_b, strdup(minors_list[i]));
+		pthread_create(&tid2, NULL, low_priority_thread_w_nb, strdup(minors_list[i]));
+		pthread_create(&tid3, NULL, low_priority_thread_r_b, strdup(minors_list[i]));
+		pthread_create(&tid4, NULL, low_priority_thread_r_nb, strdup(minors_list[i]));
+		pthread_join(tid1,NULL);
+		pthread_join(tid2,NULL);
+		pthread_join(tid3,NULL);
+		pthread_join(tid4,NULL);
 
-    pause();
+		sleep(1);
+
+		pthread_create(&tid1, NULL, high_priority_thread_w_b, strdup(minors_list[i]));
+		pthread_create(&tid2, NULL, high_priority_thread_w_nb, strdup(minors_list[i]));
+		pthread_create(&tid3, NULL, high_priority_thread_r_b, strdup(minors_list[i]));
+		pthread_create(&tid4, NULL, high_priority_thread_r_nb, strdup(minors_list[i]));
+		pthread_join(tid1,NULL);
+		pthread_join(tid2,NULL);
+		pthread_join(tid3,NULL);
+		pthread_join(tid4,NULL);
+
+		sleep(1);
+	}
+	printf("\t\tdone.\n");
+
+	printf("/n/nTesting complete.");
+
     return 0;
 }

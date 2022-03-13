@@ -1,3 +1,5 @@
+//@TODO - test with timeout = 0
+//@TODO - fix the 'char removal' feature
 
 #define EXPORT_SYMTAB
 #include <linux/kernel.h>
@@ -12,6 +14,7 @@
 #include <linux/wait.h>
 #include <linux/workqueue.h>
 #include <linux/slab.h>
+#include <linux/jiffies.h>
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Matteo Ferretti <0300049>");
@@ -22,6 +25,10 @@ MODULE_DESCRIPTION("A basic driver implementing multi-flow devices");
 
 #define get_major(session) MAJOR(session->f_inode->i_rdev)
 #define get_minor(session) MINOR(session->f_inode->i_rdev)
+
+#define DEFAULT_BLOCKING_OPS_TIMEOUT 0
+#define DEFAULT_BLOCKING_MODE 0
+#define DEFAULT_PRIORITY_MODE 0
 
 #define OBJECT_MAX_SIZE (4096)
 
@@ -58,13 +65,20 @@ object_state objects[MINORS];
 int devices_state[MINORS];
 int high_bytes[MINORS];
 int low_bytes[MINORS];
+int high_waiting[MINORS];
+int low_waiting[MINORS];
 
-module_param_array(devices_state,int,NULL,S_IRUGO|S_IWUSR);
+module_param_array(devices_state,int,NULL,S_IWUSR|S_IRUSR);
 module_param_array(high_bytes,int,NULL,S_IRUGO);
 module_param_array(low_bytes,int,NULL,S_IRUGO);
-MODULE_PARM_DESC(devices_state, "Array describing devices states (0 = disabled - 1 = enabled)");
-MODULE_PARM_DESC(high_bytes, "Array describing the number of current valid bytes in the high priority stream in every device.");
-MODULE_PARM_DESC(low_bytes, "Array describing the number of current valid bytes in the low priority stream in every device.");
+module_param_array(high_waiting, int,NULL,S_IRUGO);
+module_param_array(low_waiting, int,NULL,S_IRUGO);
+
+MODULE_PARM_DESC(devices_state, "Array of devices states (0 = disabled - 1 = enabled)");
+MODULE_PARM_DESC(high_bytes, "Array reporting the number of current valid bytes in the high priority stream of every device.");
+MODULE_PARM_DESC(low_bytes, "Array reporting the number of current valid bytes in the low priority stream of every device.");
+MODULE_PARM_DESC(high_waiting, "Array describing the number of threads waiting on the high priority stream of every device.");
+MODULE_PARM_DESC(low_waiting, "Array describing the number of threads waiting on the low priority stream of every device.");
 
 void work_function(struct work_struct *work)
 {
@@ -86,7 +100,9 @@ void work_function(struct work_struct *work)
    printk("%s: KWORKER DAEMON RUNNING - PID = %d - CPU-core = %d\n",MODNAME,current->pid,smp_processor_id());
    if (the_object->blockingModeOn)
    {
+      __atomic_fetch_add(&low_waiting[minor], 1, __ATOMIC_SEQ_CST);
       ok = wait_event_timeout(the_object->low_prio_queue, mutex_trylock(&(the_object->mutex_lo)), the_object->awake_timeout);
+      __atomic_fetch_sub(&low_waiting[minor], 1, __ATOMIC_SEQ_CST);
       if (!ok)
       {
          printk("%s: KWORKER DAEMON: REQUEST TIMEOUT - the requested write ('%s') on minor %d will not be performed.\n", MODNAME, info->buff,minor);
@@ -203,7 +219,9 @@ static ssize_t dev_write(struct file *filp, const char *buff, size_t len, loff_t
    {
       if (highPriority)
       {
+         __atomic_fetch_add(&high_waiting[minor], 1, __ATOMIC_SEQ_CST);
          ok = wait_event_timeout(the_object->high_prio_queue, mutex_trylock(&(the_object->mutex_hi)), the_object->awake_timeout);
+         __atomic_fetch_sub(&high_waiting[minor], 1, __ATOMIC_SEQ_CST);
          if (!ok)
          {
             printk("%s: REQUEST TIMEOUT - the requested write ('%s') on minor %d will not be performed.\n", MODNAME, buff, minor);
@@ -332,7 +350,9 @@ static ssize_t dev_read(struct file *filp, char *buff, size_t len, loff_t *off)
    {
       if (highPriority)
       {
+         __atomic_fetch_add(&high_waiting[minor], 1, __ATOMIC_SEQ_CST);
          ok = wait_event_timeout(the_object->high_prio_queue, mutex_trylock(&(the_object->mutex_hi)), the_object->awake_timeout);
+         __atomic_fetch_sub(&high_waiting[minor], 1, __ATOMIC_SEQ_CST);
          if (!ok)
          {
             printk("%s: REQUEST TIMEOUT - the requested read (%ld bytes) on minor %d will not be performed.\n", MODNAME, len, minor);
@@ -341,7 +361,9 @@ static ssize_t dev_read(struct file *filp, char *buff, size_t len, loff_t *off)
       }
       else
       {
+         __atomic_fetch_add(&low_waiting[minor], 1, __ATOMIC_SEQ_CST);
          ok = wait_event_timeout(the_object->low_prio_queue, mutex_trylock(&(the_object->mutex_lo)), the_object->awake_timeout);
+         __atomic_fetch_sub(&low_waiting[minor], 1, __ATOMIC_SEQ_CST);
          if (!ok)
          {
             printk("%s: REQUEST TIMEOUT - the requested read (%ld bytes) on minor %d will not be performed.\n", MODNAME, len, minor);
@@ -371,6 +393,8 @@ static ssize_t dev_read(struct file *filp, char *buff, size_t len, loff_t *off)
          }
       }
    }
+   //Lock acquired
+
    // if offset beyond the current stream size
    if ((!highPriority && *off > the_object->valid_bytes_lo))
    {
@@ -443,7 +467,7 @@ static long dev_ioctl(struct file *filp, unsigned int command, unsigned long par
          the_object->blockingModeOn = 1;
          break;
       case 4:
-         the_object->awake_timeout = param;
+         the_object->awake_timeout = param*HZ;
          break;
       case 5:
          if(devices_state[minor] == 1)
@@ -480,9 +504,9 @@ int init_module(void)
       init_waitqueue_head(&(objects[i].high_prio_queue));
       init_waitqueue_head(&(objects[i].low_prio_queue));
 
-      objects[i].awake_timeout = 500;
-      objects[i].blockingModeOn = 0;
-      objects[i].priorityMode = 0;
+      objects[i].awake_timeout = DEFAULT_BLOCKING_OPS_TIMEOUT*HZ;
+      objects[i].blockingModeOn = DEFAULT_BLOCKING_MODE;
+      objects[i].priorityMode = DEFAULT_PRIORITY_MODE;
 
       devices_state[i] = 1;
       objects[i].isEnabled = &devices_state[i];
@@ -498,6 +522,9 @@ int init_module(void)
 
       low_bytes[i] = objects[i].valid_bytes_lo;
       high_bytes[i] = objects[i].valid_bytes_hi;
+
+      low_waiting[i] = 0;
+      high_waiting[i] = 0;
    }
 
    Major = __register_chrdev(0, 0, 128, DEVICE_NAME, &fops);
