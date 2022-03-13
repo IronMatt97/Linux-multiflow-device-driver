@@ -1,0 +1,1 @@
+cmd_/home/ubuntu/Documents/SOA/Module.symvers := sed 's/\.ko$$/\.o/' /home/ubuntu/Documents/SOA/modules.order | scripts/mod/modpost -m -a  -o /home/ubuntu/Documents/SOA/Module.symvers -e -i Module.symvers   -T -
