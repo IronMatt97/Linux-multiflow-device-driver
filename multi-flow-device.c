@@ -1,5 +1,5 @@
-//@TODO - test with timeout = 0
 //@TODO - fix the 'char removal' feature
+//@TODO - implement a test disabling some devices or do it before running tests
 
 #define EXPORT_SYMTAB
 #include <linux/kernel.h>
@@ -17,62 +17,64 @@
 #include <linux/jiffies.h>
 
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Matteo Ferretti <0300049>");
-MODULE_DESCRIPTION("A basic driver implementing multi-flow devices");
+MODULE_AUTHOR("Matteo Ferretti <matti1097@gmail.com>");
+MODULE_DESCRIPTION("A basic device driver implementing multi-flow devices realized for academic purpose.");
 
 #define MODNAME "MULTI-FLOW-DEVICE"
 #define DEVICE_NAME "mfdev"
 
-#define get_major(session) MAJOR(session->f_inode->i_rdev)
-#define get_minor(session) MINOR(session->f_inode->i_rdev)
+#define get_major(session) MAJOR(session->f_inode->i_rdev)  //MAJOR number
+#define get_minor(session) MINOR(session->f_inode->i_rdev)  //MINOR number
 
-#define DEFAULT_BLOCKING_OPS_TIMEOUT 0
-#define DEFAULT_BLOCKING_MODE 0
-#define DEFAULT_PRIORITY_MODE 0
+#define DEFAULT_BLOCKING_OPS_TIMEOUT 1 //Default timeout (in seconds) for blocking operations on a device
+#define DEFAULT_BLOCKING_MODE 0  //Default blocking mode of RW operations for a device (0 = non-blocking - 1 = blocking)
+#define DEFAULT_PRIORITY_MODE 0  //Default priority mode for a device (0 = low priority usage - 1 = high priority usage)
 
 #define OBJECT_MAX_SIZE (4096)
 
-typedef struct _object_state
+typedef struct _object_state  // This struct represents a single device
 {
-   struct mutex mutex_hi;  // synchronization utilities
-   struct mutex mutex_lo;
+   struct mutex mutex_hi;  // synchronization utility for high priority flows
+   struct mutex mutex_lo;  // synchronization utility for low priority flows
    int priorityMode;                  // 0 = low priority usage, 1 = high priority usage
    int blockingModeOn;                // 0 = non-blocking RW ops, 1 = blocking RW ops
-   int *isEnabled;
+   int *isEnabled;                    // pointer to module param representing if a device is enabled (openable sessions)
    unsigned long awake_timeout;       // timeout regulating the awake of blocking operations
    int valid_bytes_lo;                // written bytes present in the low priority flow
    int valid_bytes_hi;                // written bytes present in the high priority flow
    char *low_priority_flow;           // low priority data stream
    char *high_priority_flow;          // high priority data stream
-   wait_queue_head_t high_prio_queue; // wait event queues
-   wait_queue_head_t low_prio_queue;
+   wait_queue_head_t high_prio_queue; // wait event queue for threads waiting to perform actions on high priority streams
+   wait_queue_head_t low_prio_queue;  // wait event queue for threads waiting to perform actions on low priority streams
 
 } object_state;
 
 typedef struct _packed_work // Work structure to write on devices
 {
-   struct file *filp;
-   char *buff;
-   size_t len;
-   long long int off;
-   struct work_struct work;
+   struct file *filp;   //pointer to session
+   char *buff; //data string
+   size_t len; //data size variable
+   long long int off;   //session offset
+   struct work_struct work;   //defined work for work queue
 } packed_work;
 
 static int Major;
 
 #define MINORS 128
 object_state objects[MINORS];
+
+//Arrays used for module parameters
 int devices_state[MINORS];
 int high_bytes[MINORS];
 int low_bytes[MINORS];
 int high_waiting[MINORS];
 int low_waiting[MINORS];
 
-module_param_array(devices_state,int,NULL,S_IWUSR|S_IRUSR);
-module_param_array(high_bytes,int,NULL,S_IRUGO);
-module_param_array(low_bytes,int,NULL,S_IRUGO);
-module_param_array(high_waiting, int,NULL,S_IRUGO);
-module_param_array(low_waiting, int,NULL,S_IRUGO);
+module_param_array(devices_state,int,NULL,S_IWUSR|S_IRUSR); //Module parameter to expose devices state (0 = disabled - 1 = enabled)
+module_param_array(high_bytes,int,NULL,S_IRUGO);   //Module parameter describing how many valid bytes are present in every high priority flow
+module_param_array(low_bytes,int,NULL,S_IRUGO); //Module parameter describing how many valid bytes are present in every low priority flow
+module_param_array(high_waiting, int,NULL,S_IRUGO);   //Module parameter representing how many threads are waiting on high priority stream for every device
+module_param_array(low_waiting, int,NULL,S_IRUGO); //Module parameter representing how many threads are waiting on low priority stream for every device
 
 MODULE_PARM_DESC(devices_state, "Array of devices states (0 = disabled - 1 = enabled)");
 MODULE_PARM_DESC(high_bytes, "Array reporting the number of current valid bytes in the high priority stream of every device.");

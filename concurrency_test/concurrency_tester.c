@@ -261,7 +261,7 @@ int main(int argc, char** argv)
 	}
 	printf("\t\tdone.\n");
 
-	printf("/n/nTesting complete.");
+	printf("\n\nTesting complete.\n\n");
 
     return 0;
 }
