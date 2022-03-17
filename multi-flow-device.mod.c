@@ -35,6 +35,7 @@ __used __section("__versions") = {
 	{ 0xd9a5ea54, "__init_waitqueue_head" },
 	{ 0x977f511b, "__mutex_init" },
 	{ 0x6b10bee1, "_copy_to_user" },
+	{ 0xeb233a45, "__kmalloc" },
 	{ 0xc5b6f236, "queue_work_on" },
 	{ 0x2d3385d3, "system_wq" },
 	{ 0x13c49cc2, "_copy_from_user" },
@@ -64,4 +65,4 @@ __used __section("__versions") = {
 MODULE_INFO(depends, "");
 
 
-MODULE_INFO(srcversion, "BE9808D846051AB5401A33A");
+MODULE_INFO(srcversion, "41D62544B99D7A9EC698363");

@@ -3,186 +3,85 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <pthread.h>
 #include <sys/ioctl.h>
 
+int minors;
 int i;
 int action;
-int minors;
-unsigned long timeout;
 char **minors_list;
-pthread_t tid;
 char buff[4096];
 
 #define DATA "Test"
 #define REPEAT while (1)
 #define SIZE strlen(DATA)
+#define BYTES_TO_READ 3
 
 void default_prompt(void)
 {
     printf("--------------------\n");
+    printf("Welcome %s. This is a testing program.\n",getlogin());
+    return;
+}
+int wrong_input(int n)
+{
+    int num = (int)n;
+    if(n - num == 0)
+        return 0;
+    else
+        return 1; 
+}
+int wrong_input_long(unsigned long n)
+{
+    unsigned long num = (unsigned long)n;
+    if(n - num == 0)
+        return 0;
+    else
+        return 1; 
+}
+char *choose_device()
+{
+    int minor;
+    printf("Select a minor number from available minors: ");
+    scanf("%d", &minor);
+    if (wrong_input(minor) || minor < 0 || minor > minors)
+    {
+        printf("\n\tInvalid minor chosen. Closing the program...\n");
+        exit(-1);
+    }
+    char* device = minors_list[minor];
+    return device;
+}
+int choose_action()
+{
+    int action;
     printf("Choose an action:\n");
     printf("1) Write on a device flow\n");
     printf("2) Read from a device flow\n");
     printf("3) Send an IOCTL to a device\n");
     printf("\n\tChosen action: ");
-    return;
-}
+    scanf("%d", &action);
+    if (wrong_input(action))
+        return -1;
 
-void *thread_write(void *path)
+    return action;
+}
+void do_write(int fd)
 {
-    char *device = (char *)path;
-    int fd = open(device, O_RDWR | O_APPEND);
-    if (fd == -1)
-    {
-        printf("\t\t\tTHREAD ERROR: open error on device %s\n", device);
-        return NULL;
-    }
     write(fd, DATA, SIZE);
-    close(fd);
     printf("\t\t\tTHREAD WRITE COMPLETE.\n");
-    return NULL;
+    return;
 }
-void *thread_read(void *path)
+void do_read(int fd)
 {
-    char *device = (char *)path;
-    int fd = open(device, O_RDWR);
-    if (fd == -1)
-    {
-        printf("\t\t\tTHREAD ERROR: open error on device %s\n", device);
-        return NULL;
-    }
-    char *message = malloc(2);
-    read(fd, message, 2);
-    close(fd);
+    char *message = malloc(BYTES_TO_READ);
+    read(fd, message, BYTES_TO_READ);
     printf("\t\t\tTHREAD READ COMPLETE - read data: '%s'.\n", message);
-    return NULL;
-}
-void *thread_ioctl_set_low(void *path)
-{
-    char *device = (char *)path;
-    int fd = open(device, O_RDWR);
-    if (fd == -1)
-    {
-        printf("\t\t\tTHREAD ERROR: open error on device %s\n", device);
-        return NULL;
-    }
-    ioctl(fd, 0);
-    close(fd);
-    printf("\t\t\tTHREAD IOCTL COMPLETE.\n");
-    return NULL;
-}
-void *thread_ioctl_set_high(void *path)
-{
-    char *device = (char *)path;
-    int fd = open(device, O_RDWR);
-    if (fd == -1)
-    {
-        printf("\t\t\tTHREAD ERROR: open error on device %s\n", device);
-        return NULL;
-    }
-    ioctl(fd, 1);
-    close(fd);
-    printf("\t\t\tTHREAD IOCTL COMPLETE.\n");
-    return NULL;
-}
-void *thread_ioctl_set_non_blocking(void *path)
-{
-    char *device = (char *)path;
-    int fd = open(device, O_RDWR);
-    if (fd == -1)
-    {
-        printf("\t\t\tTHREAD ERROR: open error on device %s\n", device);
-        return NULL;
-    }
-    ioctl(fd, 2);
-    close(fd);
-    printf("\t\t\tTHREAD IOCTL COMPLETE.\n");
-    return NULL;
-}
-void *thread_ioctl_set_blocking(void *path)
-{
-    char *device = (char *)path;
-    int fd = open(device, O_RDWR);
-    if (fd == -1)
-    {
-        printf("\t\t\tTHREAD ERROR: open error on device %s\n", device);
-        return NULL;
-    }
-    ioctl(fd, 3);
-    close(fd);
-    printf("\t\t\tTHREAD IOCTL COMPLETE.\n");
-    return NULL;
-}
-void *thread_ioctl_set_timeout(void *path)
-{
-    char *device = (char *)path;
-    int fd = open(device, O_RDWR);
-    if (fd == -1)
-    {
-        printf("\t\t\tTHREAD ERROR: open error on device %s\n", device);
-        return NULL;
-    }
-    ioctl(fd, 4, timeout);
-    close(fd);
-    printf("\t\t\tTHREAD IOCTL COMPLETE.\n");
-    return NULL;
-}
-void *thread_ioctl_enable_disable(void *path)
-{
-    char *device = (char *)path;
-    int fd = open(device, O_RDWR);
-    if (fd == -1)
-    {
-        printf("\t\t\tTHREAD ERROR: open error on device %s\n", device);
-        return NULL;
-    }
-    ioctl(fd, 5);
-    close(fd);
-    printf("\t\t\tTHREAD IOCTL COMPLETE.\n");
-    return NULL;
-}
-void do_write()
-{
-    int minor;
-    printf("Insert the minor number you want to write to: ");
-    scanf("%d", &minor);
-    if (minor < 0 || minor > minors)
-    {
-        printf("\n\tInvalid minor chosen. Restarting...\n");
-        return;
-    }
-
-    pthread_create(&tid, NULL, thread_write, strdup(minors_list[minor]));
-
-    printf("A thread has been spawned to perform the request.\n");
     return;
 }
-void do_read()
+void do_ioctl(int fd)
 {
-    int minor;
-    printf("Insert the minor number you want to read from: ");
-    scanf("%d", &minor);
-    if (minor < 0 || minor > minors)
-    {
-        printf("\n\tInvalid minor chosen. Restarting...\n");
-        return;
-    }
-    pthread_create(&tid, NULL, thread_read, strdup(minors_list[minor]));
-    printf("A thread has been spawned to perform the request.\n");
-    return;
-}
-void do_ioctl()
-{
-    int minor;
-    printf("Insert the minor number you want to send an ioctl to: ");
-    scanf("%d", &minor);
-    if (minor < 0 || minor > minors)
-    {
-        printf("\n\tInvalid minor chosen. Restarting...\n");
-        return;
-    }
-    printf("\nInsert the ioctl code you want to send to device with minor %d:\n", minor);
+    unsigned long timeout;
+    printf("\nInsert the ioctl code you want to send to the device:\n");
     printf("0 - set low priority mode for RW operations for the device\n");
     printf("1 - set high priority mode for RW operations for the device\n");
     printf("2 - set the execution to non-blocking mode\n");
@@ -193,30 +92,33 @@ void do_ioctl()
     switch (action)
     {
     case 0:
-        pthread_create(&tid, NULL, thread_ioctl_set_low, strdup(minors_list[minor]));
+        ioctl(fd, 0);
         break;
     case 1:
-        pthread_create(&tid, NULL, thread_ioctl_set_high, strdup(minors_list[minor]));
+        ioctl(fd, 1);
         break;
     case 2:
-        pthread_create(&tid, NULL, thread_ioctl_set_non_blocking, strdup(minors_list[minor]));
+        ioctl(fd, 2);
         break;
     case 3:
-        pthread_create(&tid, NULL, thread_ioctl_set_blocking, strdup(minors_list[minor]));
+        ioctl(fd, 3);
         break;
     case 4:
         printf("Declare new timeout: ");
         scanf("%ld", &timeout);
-        pthread_create(&tid, NULL, thread_ioctl_set_timeout, strdup(minors_list[minor]));
+        if (wrong_input_long(timeout));
+            goto def;
+        ioctl(fd, 4, timeout);
         break;
     case 5:
-        pthread_create(&tid, NULL, thread_ioctl_enable_disable, strdup(minors_list[minor]));
+        ioctl(fd,5);
         break;
+def:
     default:
         printf("\n\tInvalid input. Restarting...\n");
         return;
     }
-    printf("A thread has been spawned to perform the request.\n");
+    printf("\t\t\tTHREAD IOCTL COMPLETE.\n");
     return;
 }
 int main(int argc, char **argv)
@@ -244,29 +146,48 @@ int main(int argc, char **argv)
     printf("\tSystem initialized. Minors list:\n");
     for (i = 0; i < minors; i++)
     {
-        printf("\t\t%s\n", minors_list[i]);
+        printf("\t\t%d) %s\n", i, minors_list[i]);
     }
-    printf("\n\nHow to use: select an action in the next prompt and a thread will be spawned to perform the request.\n");
+    printf("\n\nHow to use: select an action to perform in the next prompt.\n");
 
+    int last_ioctl = 0;
+    int fd;
     // User routine
     REPEAT
     {
         default_prompt();
-        scanf("%d", &action);
+        char* device = choose_device();
+        action = choose_action();
+        if(!last_ioctl)
+        {
+            fd = open(device, O_RDWR);
+            if(fd == -1)
+            {
+                printf("OPEN ERROR - There was an error opening the device.\n");
+                return fd;
+            }
+        }
         switch (action)
         {
-        case 1:
-            do_write();
-            break;
-        case 2:
-            do_read();
-            break;
-        case 3:
-            do_ioctl();
-            break;
-        default:
-            printf("\n\tWrong input, restarting...\n");
+            case 1:
+                do_write(fd);
+                last_ioctl = 0;
+                break;
+            case 2:
+                do_read(fd);
+                last_ioctl = 0;
+                break;
+            case 3:
+                do_ioctl(fd);
+                last_ioctl = 1;
+                break;
+            default:
+                printf("\n\tWrong input, restarting...\n");
         }
+        if(!last_ioctl)
+            close(fd);
     }
     return 0;
 }
+
+

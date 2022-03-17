@@ -1,4 +1,4 @@
-//@TODO - fix the 'char removal' feature
+//@TODO - fix the read more than present
 
 #define EXPORT_SYMTAB
 #include <linux/kernel.h>
@@ -349,6 +349,8 @@ static ssize_t dev_read(struct file *filp, char *buff, size_t len, loff_t *off)
    int minor = get_minor(filp);
    int ret;
    int ok;
+   char *buff_temp;
+   char *p;
    object_state *the_object = objects + minor;
    session *s = filp->private_data;
    int highPriority = s->priorityMode;
@@ -432,9 +434,14 @@ static ssize_t dev_read(struct file *filp, char *buff, size_t len, loff_t *off)
    	//Azzera buff
    	//copia residua in buff
       ret = copy_to_user(buff, &(the_object->high_priority_flow[*off]), len);
-      the_object->high_priority_flow += len;
-      the_object->valid_bytes_hi -= len;
-      high_bytes[minor] = the_object->valid_bytes_hi;
+      buff_temp = kzalloc(strlen(the_object->high_priority_flow)-(len-ret),GFP_ATOMIC);//Alloco un buffer tampone con i restanti char
+      p = the_object->high_priority_flow + (len - ret); // Prendo un char* a partire dall'offset di lettura dentro lo stream
+      memcpy(buff_temp,p,strlen(p)); //copio dall'offset in avanti in un buffer tampone
+      memset(the_object->high_priority_flow,0,the_object->valid_bytes_hi); //svuoto lo stream
+      memcpy(the_object->high_priority_flow,buff_temp,strlen(buff_temp)); //lo riempio con i bytes spostati
+      kfree(buff_temp);
+      the_object->valid_bytes_hi -= len-ret;//aggiorno i valid bytes
+      high_bytes[minor] = the_object->valid_bytes_hi; //aggiorno il param
 
       printk("%s: READ OPERATION COMPLETED - unread bytes = %d\n",MODNAME,ret);
       printk("%s: UPDATED FLOWS\nLOW_PRIORITY_FLOW: %s\nHIGH_PRIORITY_FLOW: %s\n", MODNAME, the_object->low_priority_flow, the_object->high_priority_flow);
@@ -444,8 +451,14 @@ static ssize_t dev_read(struct file *filp, char *buff, size_t len, loff_t *off)
    else
    {
       ret = copy_to_user(buff, &(the_object->low_priority_flow[*off]), len);
-      the_object->low_priority_flow += len;
-      the_object->valid_bytes_lo -= len;
+      printk("read effettuata: %s\n",buff);
+      buff_temp = kzalloc(strlen(the_object->low_priority_flow)-(len-ret),GFP_ATOMIC);//Alloco un buffer tampone con i restanti char
+      p = the_object->low_priority_flow + (len - ret); // Prendo un char* a partire dall'offset di lettura dentro lo stream
+      memcpy(buff_temp,p,strlen(p)); //copio dall'offset in avanti in un buffer tampone
+      memset(the_object->low_priority_flow,0,the_object->valid_bytes_lo); //svuoto lo stream
+      memcpy(the_object->low_priority_flow,buff_temp,strlen(buff_temp)); //lo riempio con i bytes spostati
+      kfree(buff_temp);
+      the_object->valid_bytes_lo -= len-ret;
       low_bytes[minor] = the_object->valid_bytes_lo;
 
       printk("%s: READ OPERATION COMPLETED - unread bytes = %d\n",MODNAME,ret);
