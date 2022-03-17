@@ -451,7 +451,6 @@ static ssize_t dev_read(struct file *filp, char *buff, size_t len, loff_t *off)
    else
    {
       ret = copy_to_user(buff, &(the_object->low_priority_flow[*off]), len);
-      printk("read effettuata: %s\n",buff);
       buff_temp = kzalloc(strlen(the_object->low_priority_flow)-(len-ret),GFP_ATOMIC);//Alloco un buffer tampone con i restanti char
       p = the_object->low_priority_flow + (len - ret); // Prendo un char* a partire dall'offset di lettura dentro lo stream
       memcpy(buff_temp,p,strlen(p)); //copio dall'offset in avanti in un buffer tampone
