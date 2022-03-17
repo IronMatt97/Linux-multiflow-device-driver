@@ -1,5 +1,4 @@
 //@TODO - fix the 'char removal' feature
-//@TODO - implement a test disabling some devices or do it before running tests
 
 #define EXPORT_SYMTAB
 #include <linux/kernel.h>
@@ -36,10 +35,7 @@ typedef struct _object_state  // This struct represents a single device
 {
    struct mutex mutex_hi;  // synchronization utility for high priority flows
    struct mutex mutex_lo;  // synchronization utility for low priority flows
-   int priorityMode;                  // 0 = low priority usage, 1 = high priority usage
-   int blockingModeOn;                // 0 = non-blocking RW ops, 1 = blocking RW ops
    int *isEnabled;                    // pointer to module param representing if a device is enabled (openable sessions)
-   unsigned long awake_timeout;       // timeout regulating the awake of blocking operations
    int valid_bytes_lo;                // written bytes present in the low priority flow
    int valid_bytes_hi;                // written bytes present in the high priority flow
    char *low_priority_flow;           // low priority data stream
@@ -48,6 +44,13 @@ typedef struct _object_state  // This struct represents a single device
    wait_queue_head_t low_prio_queue;  // wait event queue for threads waiting to perform actions on low priority streams
 
 } object_state;
+
+typedef struct session
+{
+   int priorityMode;                  // 0 = low priority usage, 1 = high priority usage
+   int blockingModeOn;                // 0 = non-blocking RW ops, 1 = blocking RW ops
+   unsigned long awake_timeout;       // timeout regulating the awake of blocking operations
+} session;
 
 typedef struct _packed_work // Work structure to write on devices
 {
@@ -93,17 +96,19 @@ void work_function(struct work_struct *work)
    long long int off;
    packed_work *info;
    object_state *the_object;
+   session *s;
 
    info = container_of(work, packed_work, work);
    minor = get_minor(info->filp);
    the_object = objects + minor;
+   s = (info->filp)->private_data;
 
 
    printk("%s: KWORKER DAEMON RUNNING - PID = %d - CPU-core = %d\n",MODNAME,current->pid,smp_processor_id());
-   if (the_object->blockingModeOn)
+   if (s->blockingModeOn)
    {
       __atomic_fetch_add(&low_waiting[minor], 1, __ATOMIC_SEQ_CST);
-      ok = wait_event_timeout(the_object->low_prio_queue, mutex_trylock(&(the_object->mutex_lo)), the_object->awake_timeout);
+      ok = wait_event_timeout(the_object->low_prio_queue, mutex_trylock(&(the_object->mutex_lo)), s->awake_timeout);
       __atomic_fetch_sub(&low_waiting[minor], 1, __ATOMIC_SEQ_CST);
       if (!ok)
       {
@@ -176,14 +181,15 @@ void work_function(struct work_struct *work)
 static int dev_open(struct inode *inode, struct file *file)
 {
    int minor = get_minor(file);
-   object_state *the_object;
-
+   file -> private_data = kzalloc(sizeof(session),GFP_ATOMIC);
+   ((session*)(file -> private_data)) -> awake_timeout = DEFAULT_BLOCKING_OPS_TIMEOUT*HZ;
+   ((session*)(file -> private_data)) -> blockingModeOn = DEFAULT_BLOCKING_MODE;
+   ((session*)(file -> private_data)) -> priorityMode = DEFAULT_PRIORITY_MODE; 
    if (minor >= MINORS)
    {
       printk("%s: ERROR - minor number %d out of handled range.\n", MODNAME, minor);
       return -1;
    }
-   the_object = objects + minor;
    if(devices_state[minor] == 1)
    {
       printk("%s: OPENED DEVICE FILE WITH MINOR %d\n", MODNAME, minor);
@@ -199,6 +205,7 @@ static int dev_open(struct inode *inode, struct file *file)
 static int dev_release(struct inode *inode, struct file *file)
 {
    int minor = get_minor(file);
+   kfree(file->private_data);
    printk("%s: CLOSED DEVICE FILE WITH MINOR %d\n", MODNAME, minor);
    return 0;
 }
@@ -211,18 +218,19 @@ static ssize_t dev_write(struct file *filp, const char *buff, size_t len, loff_t
    int ok;
    int minor = get_minor(filp);
    object_state *the_object = objects + minor;
-   int highPriority = the_object->priorityMode;
+   session *s = filp->private_data;
+   int highPriority = s->priorityMode;
 
    printk("%s: WRITE CALLED ON [MAJ-%d,MIN-%d]\n", MODNAME, get_major(filp), get_minor(filp));
-   printk("%s: \nPriority mode = %d\nBlocking mode = %d\nValid bytes (low priority stream) = %d\nValid bytes (high priority stream) = %d\n", MODNAME, highPriority, the_object->blockingModeOn, the_object->valid_bytes_lo, the_object->valid_bytes_hi);
+   printk("%s: \nPriority mode = %d\nBlocking mode = %d\nValid bytes (low priority stream) = %d\nValid bytes (high priority stream) = %d\n", MODNAME, highPriority, s->blockingModeOn, the_object->valid_bytes_lo, the_object->valid_bytes_hi);
 
    // Blocking mode
-   if (the_object->blockingModeOn)
+   if (s->blockingModeOn)
    {
       if (highPriority)
       {
          __atomic_fetch_add(&high_waiting[minor], 1, __ATOMIC_SEQ_CST);
-         ok = wait_event_timeout(the_object->high_prio_queue, mutex_trylock(&(the_object->mutex_hi)), the_object->awake_timeout);
+         ok = wait_event_timeout(the_object->high_prio_queue, mutex_trylock(&(the_object->mutex_hi)), s->awake_timeout);
          __atomic_fetch_sub(&high_waiting[minor], 1, __ATOMIC_SEQ_CST);
          if (!ok)
          {
@@ -342,18 +350,19 @@ static ssize_t dev_read(struct file *filp, char *buff, size_t len, loff_t *off)
    int ret;
    int ok;
    object_state *the_object = objects + minor;
-   int highPriority = the_object->priorityMode;
+   session *s = filp->private_data;
+   int highPriority = s->priorityMode;
 
    printk("%s: READ CALLED ON [MAJ-%d,MIN-%d]\n", MODNAME, get_major(filp), get_minor(filp));
-   printk("%s: \nPriority mode = %d\nBlocking mode = %d\nValid bytes (low priority stream) = %d\nValid bytes (high priority stream) = %d\n", MODNAME, highPriority, the_object->blockingModeOn, the_object->valid_bytes_lo, the_object->valid_bytes_hi);
+   printk("%s: \nPriority mode = %d\nBlocking mode = %d\nValid bytes (low priority stream) = %d\nValid bytes (high priority stream) = %d\n", MODNAME, highPriority, s->blockingModeOn, the_object->valid_bytes_lo, the_object->valid_bytes_hi);
 
    // Blocking mode
-   if (the_object->blockingModeOn)
+   if (s->blockingModeOn)
    {
       if (highPriority)
       {
          __atomic_fetch_add(&high_waiting[minor], 1, __ATOMIC_SEQ_CST);
-         ok = wait_event_timeout(the_object->high_prio_queue, mutex_trylock(&(the_object->mutex_hi)), the_object->awake_timeout);
+         ok = wait_event_timeout(the_object->high_prio_queue, mutex_trylock(&(the_object->mutex_hi)), s->awake_timeout);
          __atomic_fetch_sub(&high_waiting[minor], 1, __ATOMIC_SEQ_CST);
          if (!ok)
          {
@@ -364,7 +373,7 @@ static ssize_t dev_read(struct file *filp, char *buff, size_t len, loff_t *off)
       else
       {
          __atomic_fetch_add(&low_waiting[minor], 1, __ATOMIC_SEQ_CST);
-         ok = wait_event_timeout(the_object->low_prio_queue, mutex_trylock(&(the_object->mutex_lo)), the_object->awake_timeout);
+         ok = wait_event_timeout(the_object->low_prio_queue, mutex_trylock(&(the_object->mutex_lo)), s->awake_timeout);
          __atomic_fetch_sub(&low_waiting[minor], 1, __ATOMIC_SEQ_CST);
          if (!ok)
          {
@@ -418,6 +427,10 @@ static ssize_t dev_read(struct file *filp, char *buff, size_t len, loff_t *off)
 
    if (highPriority)
    {
+   	//In teoria qui ogni volta ti devi spostare di len-ret
+   	//Logica: salva in un buffer tampone la residua stringa
+   	//Azzera buff
+   	//copia residua in buff
       ret = copy_to_user(buff, &(the_object->high_priority_flow[*off]), len);
       the_object->high_priority_flow += len;
       the_object->valid_bytes_hi -= len;
@@ -446,9 +459,12 @@ static ssize_t dev_read(struct file *filp, char *buff, size_t len, loff_t *off)
 
 static long dev_ioctl(struct file *filp, unsigned int command, unsigned long param)
 {
-   int minor = get_minor(filp);
+   int minor;
    object_state *the_object;
+   session *s;
+   minor = get_minor(filp);
    the_object = objects + minor;
+   s = filp->private_data;
 
    printk("%s: IOCTL CALLED ON [MAJ-%d,MIN-%d] - command = %u \n", MODNAME, get_major(filp), get_minor(filp), command);
 
@@ -457,19 +473,19 @@ static long dev_ioctl(struct file *filp, unsigned int command, unsigned long par
    switch (command)
    {
       case 0:
-         the_object->priorityMode = 0;
+         s->priorityMode = 0;
          break;
       case 1:
-         the_object->priorityMode = 1;
+         s->priorityMode = 1;
          break;
       case 2:
-         the_object->blockingModeOn = 0;
+         s->blockingModeOn = 0;
          break;
       case 3:
-         the_object->blockingModeOn = 1;
+         s->blockingModeOn = 1;
          break;
       case 4:
-         the_object->awake_timeout = param*HZ;
+         s->awake_timeout = param*HZ;
          break;
       case 5:
          if(devices_state[minor] == 1)
@@ -505,10 +521,6 @@ int init_module(void)
       mutex_init(&(objects[i].mutex_lo));
       init_waitqueue_head(&(objects[i].high_prio_queue));
       init_waitqueue_head(&(objects[i].low_prio_queue));
-
-      objects[i].awake_timeout = DEFAULT_BLOCKING_OPS_TIMEOUT*HZ;
-      objects[i].blockingModeOn = DEFAULT_BLOCKING_MODE;
-      objects[i].priorityMode = DEFAULT_PRIORITY_MODE;
 
       devices_state[i] = 1;
       objects[i].isEnabled = &devices_state[i];
