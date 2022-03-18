@@ -1,5 +1,3 @@
-//@TODO - fix the read more than present
-
 #define EXPORT_SYMTAB
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -73,7 +71,7 @@ int low_bytes[MINORS];
 int high_waiting[MINORS];
 int low_waiting[MINORS];
 
-module_param_array(devices_state,int,NULL,S_IWUSR|S_IRUSR); //Module parameter to expose devices state (0 = disabled - 1 = enabled)
+module_param_array(devices_state,int,NULL,S_IWUSR|S_IRUGO); //Module parameter to expose devices state (0 = disabled - 1 = enabled)
 module_param_array(high_bytes,int,NULL,S_IRUGO);   //Module parameter describing how many valid bytes are present in every high priority flow
 module_param_array(low_bytes,int,NULL,S_IRUGO); //Module parameter describing how many valid bytes are present in every low priority flow
 module_param_array(high_waiting, int,NULL,S_IRUGO);   //Module parameter representing how many threads are waiting on high priority stream for every device
@@ -134,7 +132,7 @@ void work_function(struct work_struct *work)
 
    // Only low priority condition possible here
    // if offset too large
-   if ((info->off) >= OBJECT_MAX_SIZE)
+   if ((info->off) + (info->len) >= OBJECT_MAX_SIZE)
    {
       free_page((unsigned long)info->buff);
       kfree(info);
@@ -301,7 +299,7 @@ static ssize_t dev_write(struct file *filp, const char *buff, size_t len, loff_t
 
    // Only high priority condition possible here
    // if offset too large
-   if (*off >= OBJECT_MAX_SIZE)
+   if (*off +len >= OBJECT_MAX_SIZE)
    {
       mutex_unlock(&(the_object->mutex_hi));
       wake_up(&(the_object->high_prio_queue));
@@ -309,7 +307,7 @@ static ssize_t dev_write(struct file *filp, const char *buff, size_t len, loff_t
       return -ENOSPC;
    }
    // if offset beyond the current stream size
-   if ((!highPriority && *off > the_object->valid_bytes_lo) || (highPriority && *off > the_object->valid_bytes_hi))
+   if ((*off > the_object->valid_bytes_hi))
    {
       mutex_unlock(&(the_object->mutex_hi));
       wake_up(&(the_object->high_prio_queue));
@@ -421,29 +419,37 @@ static ssize_t dev_read(struct file *filp, char *buff, size_t len, loff_t *off)
       wake_up(&(the_object->high_prio_queue));
       return 0;
    }
-   
+
    if ((!highPriority && the_object->valid_bytes_lo - *off < len))
+   {
       len = the_object->valid_bytes_lo - *off;
+   }
    else if ((highPriority && the_object->valid_bytes_hi - *off < len))
+   {
       len = the_object->valid_bytes_hi - *off;
+   }
 
    if (highPriority)
    {
-   	//In teoria qui ogni volta ti devi spostare di len-ret
-   	//Logica: salva in un buffer tampone la residua stringa
-   	//Azzera buff
-   	//copia residua in buff
       ret = copy_to_user(buff, &(the_object->high_priority_flow[*off]), len);
-      buff_temp = kzalloc(strlen(the_object->high_priority_flow)-(len-ret),GFP_ATOMIC);//Alloco un buffer tampone con i restanti char
-      p = the_object->high_priority_flow + (len - ret); // Prendo un char* a partire dall'offset di lettura dentro lo stream
-      memcpy(buff_temp,p,strlen(p)); //copio dall'offset in avanti in un buffer tampone
-      memset(the_object->high_priority_flow,0,the_object->valid_bytes_hi); //svuoto lo stream
-      memcpy(the_object->high_priority_flow,buff_temp,strlen(buff_temp)); //lo riempio con i bytes spostati
-      kfree(buff_temp);
+      if(len == the_object->valid_bytes_hi - *off)
+      {
+         //Ho letto fino all'ultimo byte presente
+         memset(the_object->high_priority_flow,0,the_object->valid_bytes_hi); //svuoto lo stream
+      }
+      else
+      {
+         buff_temp = kzalloc(strlen(the_object->high_priority_flow)-(len-ret),GFP_ATOMIC);//Alloco un buffer tampone con i restanti char
+         p = the_object->high_priority_flow + (len - ret); // Prendo un char* a partire dall'offset di lettura dentro lo stream
+         memcpy(buff_temp,p,strlen(p)); //copio dall'offset in avanti in un buffer tampone
+         memset(the_object->high_priority_flow,0,the_object->valid_bytes_hi); //svuoto lo stream
+         memcpy(the_object->high_priority_flow,buff_temp,strlen(buff_temp)); //lo riempio con i bytes spostati
+         kfree(buff_temp);
+      }
       the_object->valid_bytes_hi -= len-ret;//aggiorno i valid bytes
       high_bytes[minor] = the_object->valid_bytes_hi; //aggiorno il param
 
-      printk("%s: READ OPERATION COMPLETED - unread bytes = %d\n",MODNAME,ret);
+      printk("%s: READ OPERATION COMPLETED - unread bytes = %d\nDelivered bytes: %s\n",MODNAME,ret,buff);
       printk("%s: UPDATED FLOWS\nLOW_PRIORITY_FLOW: %s\nHIGH_PRIORITY_FLOW: %s\n", MODNAME, the_object->low_priority_flow, the_object->high_priority_flow);
       mutex_unlock(&(the_object->mutex_hi));
       wake_up(&(the_object->high_prio_queue));
@@ -451,16 +457,28 @@ static ssize_t dev_read(struct file *filp, char *buff, size_t len, loff_t *off)
    else
    {
       ret = copy_to_user(buff, &(the_object->low_priority_flow[*off]), len);
-      buff_temp = kzalloc(strlen(the_object->low_priority_flow)-(len-ret),GFP_ATOMIC);//Alloco un buffer tampone con i restanti char
-      p = the_object->low_priority_flow + (len - ret); // Prendo un char* a partire dall'offset di lettura dentro lo stream
-      memcpy(buff_temp,p,strlen(p)); //copio dall'offset in avanti in un buffer tampone
-      memset(the_object->low_priority_flow,0,the_object->valid_bytes_lo); //svuoto lo stream
-      memcpy(the_object->low_priority_flow,buff_temp,strlen(buff_temp)); //lo riempio con i bytes spostati
-      kfree(buff_temp);
+
+      if(len == the_object->valid_bytes_lo - *off)
+      {
+         //Ho letto fino all'ultimo byte presente
+         memset(the_object->low_priority_flow,0,the_object->valid_bytes_lo); //svuoto lo stream
+      }
+      else
+      {
+         buff_temp = kzalloc(strlen(the_object->low_priority_flow)-(len-ret),GFP_ATOMIC);//Alloco un buffer tampone con i restanti char
+        
+         p = the_object->low_priority_flow + (len - ret); // Prendo un char* a partire dall'offset di lettura dentro lo stream
+         
+         memcpy(buff_temp,p,strlen(p)); //copio dall'offset in avanti in un buffer tampone
+         memset(the_object->low_priority_flow,0,the_object->valid_bytes_lo); //svuoto lo stream
+         memcpy(the_object->low_priority_flow,buff_temp,strlen(buff_temp)); //lo riempio con i bytes spostati
+         kfree(buff_temp);
+      }
+
       the_object->valid_bytes_lo -= len-ret;
       low_bytes[minor] = the_object->valid_bytes_lo;
 
-      printk("%s: READ OPERATION COMPLETED - unread bytes = %d\n",MODNAME,ret);
+      printk("%s: READ OPERATION COMPLETED - unread bytes = %d\nDelivered bytes: %s\n",MODNAME,ret,buff);
       printk("%s: UPDATED FLOWS\nLOW_PRIORITY_FLOW: %s\nHIGH_PRIORITY_FLOW: %s\n", MODNAME, the_object->low_priority_flow, the_object->high_priority_flow);
       mutex_unlock(&(the_object->mutex_lo));
       wake_up(&(the_object->low_prio_queue));

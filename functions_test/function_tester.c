@@ -73,7 +73,7 @@ void do_write(int fd)
 }
 void do_read(int fd)
 {
-    char *message = malloc(BYTES_TO_READ);
+    char message[BYTES_TO_READ];
     read(fd, message, BYTES_TO_READ);
     printf("\t\t\tTHREAD READ COMPLETE - read data: '%s'.\n", message);
     return;

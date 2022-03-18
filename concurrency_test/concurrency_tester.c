@@ -12,13 +12,19 @@ int minors;
 unsigned long timeout;
 char **minors_list;
 pthread_t tid1, tid2, tid3, tid4;
-char buff[4096];
+char buff[50];
+
 
 #define LOW_PRIORITY_DATA "Low_DATA"
 #define LOW_PRIORITY_DATA_LENGTH strlen(LOW_PRIORITY_DATA)
 #define HIGH_PRIORITY_DATA "High_DATA"
 #define HIGH_PRIORITY_DATA_LENGTH strlen(HIGH_PRIORITY_DATA)
 #define BYTES_TO_READ 2
+
+char r1[BYTES_TO_READ];
+char r2[BYTES_TO_READ];
+char r3[BYTES_TO_READ];
+char r4[BYTES_TO_READ];
 
 //A thread writing in the low priority stream in blocking mode
 void * low_priority_thread_w_b(void* path)
@@ -96,8 +102,7 @@ void * low_priority_thread_r_b(void* path)
 	}
 	ioctl(fd,0);
 	ioctl(fd,3);
-	char *read_data = malloc(BYTES_TO_READ);
-    read(fd, read_data, 2);
+    read(fd, r1, BYTES_TO_READ);
 	close(fd);
 	return NULL;
 }
@@ -113,8 +118,7 @@ void * low_priority_thread_r_nb(void* path)
 	}
 	ioctl(fd,0);
 	ioctl(fd,2);
-	char *read_data = malloc(BYTES_TO_READ);
-    read(fd, read_data, 2);
+    read(fd, r2, BYTES_TO_READ);
 	close(fd);
 	return NULL;
 }
@@ -130,8 +134,7 @@ void * high_priority_thread_r_b(void* path)
 	}
 	ioctl(fd,1);
 	ioctl(fd,3);
-	char *read_data = malloc(BYTES_TO_READ);
-    read(fd, read_data, 2);
+    read(fd, r3, BYTES_TO_READ);
 	close(fd);
 	return NULL;
 }
@@ -147,8 +150,7 @@ void * high_priority_thread_r_nb(void* path)
 	}
 	ioctl(fd,1);
 	ioctl(fd,2);
-	char *read_data = malloc(BYTES_TO_READ);
-    read(fd, read_data, 2);
+    read(fd, r4, BYTES_TO_READ);
 	close(fd);
 	return NULL;
 }
@@ -180,7 +182,7 @@ int main(int argc, char** argv)
         printf("\t\t%s\n", minors_list[i]);
     }
 	printf("\n\nThis is a testing program. Starting tests...\n");
-	printf("\n\tTest 1 - concurrent writes...\n");
+	/*printf("\n\tTest 1 - concurrent writes...\n");
 	for(i=0;i<minors;i++)
 	{
 		pthread_create(&tid1, NULL, low_priority_thread_w_b, strdup(minors_list[i]));
@@ -233,7 +235,7 @@ int main(int argc, char** argv)
 		sleep(1);
 	}
 	printf("\t\tdone.\n");
-
+*/
 	printf("\n\tTest 3 - concurrent writes and reads...\n");
 	for(i=0;i<minors;i++)
 	{
