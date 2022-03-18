@@ -1,3 +1,4 @@
+//TODO - c'è un problema con le read, a volte falliscono
 #define EXPORT_SYMTAB
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -441,9 +442,9 @@ static ssize_t dev_read(struct file *filp, char *buff, size_t len, loff_t *off)
       {
          buff_temp = kzalloc(strlen(the_object->high_priority_flow)-(len-ret),GFP_ATOMIC);//Alloco un buffer tampone con i restanti char
          p = the_object->high_priority_flow + (len - ret); // Prendo un char* a partire dall'offset di lettura dentro lo stream
-         memcpy(buff_temp,p,strlen(p)); //copio dall'offset in avanti in un buffer tampone
+         strncpy(buff_temp,p,strlen(p)); //copio dall'offset in avanti in un buffer tampone
          memset(the_object->high_priority_flow,0,the_object->valid_bytes_hi); //svuoto lo stream
-         memcpy(the_object->high_priority_flow,buff_temp,strlen(buff_temp)); //lo riempio con i bytes spostati
+         strncpy(the_object->high_priority_flow,buff_temp,strlen(buff_temp)); //lo riempio con i bytes spostati
          kfree(buff_temp);
       }
       the_object->valid_bytes_hi -= len-ret;//aggiorno i valid bytes
@@ -469,9 +470,9 @@ static ssize_t dev_read(struct file *filp, char *buff, size_t len, loff_t *off)
         
          p = the_object->low_priority_flow + (len - ret); // Prendo un char* a partire dall'offset di lettura dentro lo stream
          
-         memcpy(buff_temp,p,strlen(p)); //copio dall'offset in avanti in un buffer tampone
+         strncpy(buff_temp,p,strlen(p)); //copio dall'offset in avanti in un buffer tampone
          memset(the_object->low_priority_flow,0,the_object->valid_bytes_lo); //svuoto lo stream
-         memcpy(the_object->low_priority_flow,buff_temp,strlen(buff_temp)); //lo riempio con i bytes spostati
+         strncpy(the_object->low_priority_flow,buff_temp,strlen(buff_temp)); //lo riempio con i bytes spostati
          kfree(buff_temp);
       }
 

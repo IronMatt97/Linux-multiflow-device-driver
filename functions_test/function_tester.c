@@ -106,8 +106,8 @@ void do_ioctl(int fd)
     case 4:
         printf("Declare new timeout: ");
         scanf("%ld", &timeout);
-        if (wrong_input_long(timeout));
-            goto def;
+        /*if (wrong_input_long(timeout));
+            goto def;*/
         ioctl(fd, 4, timeout);
         break;
     case 5:

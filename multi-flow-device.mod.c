@@ -34,6 +34,7 @@ __used __section("__versions") = {
 	{ 0xcb720829, "__register_chrdev" },
 	{ 0xd9a5ea54, "__init_waitqueue_head" },
 	{ 0x977f511b, "__mutex_init" },
+	{ 0x9166fada, "strncpy" },
 	{ 0x6b10bee1, "_copy_to_user" },
 	{ 0xeb233a45, "__kmalloc" },
 	{ 0xc5b6f236, "queue_work_on" },
@@ -65,4 +66,4 @@ __used __section("__versions") = {
 MODULE_INFO(depends, "");
 
 
-MODULE_INFO(srcversion, "0AC07976F04D62E86239EFE");
+MODULE_INFO(srcversion, "2B15758D787FD4E46D64909");
