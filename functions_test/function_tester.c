@@ -22,28 +22,12 @@ void default_prompt(void)
     printf("Welcome %s. This is a testing program.\n",getlogin());
     return;
 }
-int wrong_input(int n)
-{
-    int num = (int)n;
-    if(n - num == 0)
-        return 0;
-    else
-        return 1; 
-}
-int wrong_input_long(unsigned long n)
-{
-    unsigned long num = (unsigned long)n;
-    if(n - num == 0)
-        return 0;
-    else
-        return 1; 
-}
 char *choose_device()
 {
     int minor;
     printf("Select a minor number from available minors: ");
     scanf("%d", &minor);
-    if (wrong_input(minor) || minor < 0 || minor > minors)
+    if (minor < 0 || minor > minors)
     {
         printf("\n\tInvalid minor chosen. Closing the program...\n");
         exit(-1);
@@ -60,7 +44,7 @@ int choose_action()
     printf("3) Send an IOCTL to a device\n");
     printf("\n\tChosen action: ");
     scanf("%d", &action);
-    if (wrong_input(action))
+    if (action < 0 || action > 3)
         return -1;
 
     return action;
@@ -106,14 +90,11 @@ void do_ioctl(int fd)
     case 4:
         printf("Declare new timeout: ");
         scanf("%ld", &timeout);
-        /*if (wrong_input_long(timeout));
-            goto def;*/
         ioctl(fd, 4, timeout);
         break;
     case 5:
         ioctl(fd,5);
         break;
-def:
     default:
         printf("\n\tInvalid input. Restarting...\n");
         return;

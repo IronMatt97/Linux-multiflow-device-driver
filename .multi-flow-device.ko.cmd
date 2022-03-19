@@ -1,1 +1,0 @@
-cmd_/home/ubuntu/Documents/SOA/multi-flow-device.ko := ld -r  -m elf_x86_64  --build-id=sha1  -T scripts/module.lds -o /home/ubuntu/Documents/SOA/multi-flow-device.ko /home/ubuntu/Documents/SOA/multi-flow-device.o /home/ubuntu/Documents/SOA/multi-flow-device.mod.o;  true

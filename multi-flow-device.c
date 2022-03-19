@@ -1,4 +1,13 @@
-//TODO - c'è un problema con le read, a volte falliscono
+/*
+* @file multi-flow-device.c 
+* @brief This is a linux kernel module developed for academic purpose. Using the module allows threads to
+*        read and write data segments from high and low priority flows of device files.
+*
+* @author Matteo Ferretti
+*
+* @date March 1, 2022
+*/
+
 #define EXPORT_SYMTAB
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -24,7 +33,7 @@ MODULE_DESCRIPTION("A basic device driver implementing multi-flow devices realiz
 #define get_major(session) MAJOR(session->f_inode->i_rdev)  //MAJOR number
 #define get_minor(session) MINOR(session->f_inode->i_rdev)  //MINOR number
 
-#define DEFAULT_BLOCKING_OPS_TIMEOUT 1 //Default timeout (in seconds) for blocking operations on a device
+#define DEFAULT_BLOCKING_OPS_TIMEOUT 300 //Default timeout (in milliseconds) for blocking operations on a device
 #define DEFAULT_BLOCKING_MODE 0  //Default blocking mode of RW operations for a device (0 = non-blocking - 1 = blocking)
 #define DEFAULT_PRIORITY_MODE 0  //Default priority mode for a device (0 = low priority usage - 1 = high priority usage)
 
@@ -44,14 +53,14 @@ typedef struct _object_state  // This struct represents a single device
 
 } object_state;
 
-typedef struct session
+typedef struct session  //This struct represents an opened session to a device
 {
    int priorityMode;                  // 0 = low priority usage, 1 = high priority usage
    int blockingModeOn;                // 0 = non-blocking RW ops, 1 = blocking RW ops
    unsigned long awake_timeout;       // timeout regulating the awake of blocking operations
 } session;
 
-typedef struct _packed_work // Work structure to write on devices
+typedef struct _packed_work // Work structure to write on devices in deferred mode
 {
    struct file *filp;   //pointer to session
    char *buff; //data string
@@ -102,8 +111,8 @@ void work_function(struct work_struct *work)
    the_object = objects + minor;
    s = (info->filp)->private_data;
 
-
    printk("%s: KWORKER DAEMON RUNNING - PID = %d - CPU-core = %d\n",MODNAME,current->pid,smp_processor_id());
+   //Lock acquirement phase
    if (s->blockingModeOn)
    {
       __atomic_fetch_add(&low_waiting[minor], 1, __ATOMIC_SEQ_CST);
@@ -131,7 +140,7 @@ void work_function(struct work_struct *work)
    //Lock acquired
    (info->off) += the_object->valid_bytes_lo;
 
-   // Only low priority condition possible here
+   // Only low priority conditions possible here
    // if offset too large
    if ((info->off) + (info->len) >= OBJECT_MAX_SIZE)
    {
@@ -181,7 +190,7 @@ static int dev_open(struct inode *inode, struct file *file)
 {
    int minor = get_minor(file);
    file -> private_data = kzalloc(sizeof(session),GFP_ATOMIC);
-   ((session*)(file -> private_data)) -> awake_timeout = DEFAULT_BLOCKING_OPS_TIMEOUT*HZ;
+   ((session*)(file -> private_data)) -> awake_timeout = DEFAULT_BLOCKING_OPS_TIMEOUT*(HZ/1000);
    ((session*)(file -> private_data)) -> blockingModeOn = DEFAULT_BLOCKING_MODE;
    ((session*)(file -> private_data)) -> priorityMode = DEFAULT_PRIORITY_MODE; 
    if (minor >= MINORS)
@@ -223,6 +232,7 @@ static ssize_t dev_write(struct file *filp, const char *buff, size_t len, loff_t
    printk("%s: WRITE CALLED ON [MAJ-%d,MIN-%d]\n", MODNAME, get_major(filp), get_minor(filp));
    printk("%s: \nPriority mode = %d\nBlocking mode = %d\nValid bytes (low priority stream) = %d\nValid bytes (high priority stream) = %d\n", MODNAME, highPriority, s->blockingModeOn, the_object->valid_bytes_lo, the_object->valid_bytes_hi);
 
+   // Lock acquisition phase
    // Blocking mode
    if (s->blockingModeOn)
    {
@@ -298,7 +308,7 @@ static ssize_t dev_write(struct file *filp, const char *buff, size_t len, loff_t
       *off += the_object->valid_bytes_lo;
 
 
-   // Only high priority condition possible here
+   // Only high priority conditions possible here
    // if offset too large
    if (*off +len >= OBJECT_MAX_SIZE)
    {
@@ -348,8 +358,7 @@ static ssize_t dev_read(struct file *filp, char *buff, size_t len, loff_t *off)
    int minor = get_minor(filp);
    int ret;
    int ok;
-   char *buff_temp;
-   char *p;
+   int delivered_bytes;
    object_state *the_object = objects + minor;
    session *s = filp->private_data;
    int highPriority = s->priorityMode;
@@ -357,6 +366,7 @@ static ssize_t dev_read(struct file *filp, char *buff, size_t len, loff_t *off)
    printk("%s: READ CALLED ON [MAJ-%d,MIN-%d]\n", MODNAME, get_major(filp), get_minor(filp));
    printk("%s: \nPriority mode = %d\nBlocking mode = %d\nValid bytes (low priority stream) = %d\nValid bytes (high priority stream) = %d\n", MODNAME, highPriority, s->blockingModeOn, the_object->valid_bytes_lo, the_object->valid_bytes_hi);
 
+   // Lock acquisition phase
    // Blocking mode
    if (s->blockingModeOn)
    {
@@ -429,25 +439,15 @@ static ssize_t dev_read(struct file *filp, char *buff, size_t len, loff_t *off)
    {
       len = the_object->valid_bytes_hi - *off;
    }
-
+   // In order to perform a read the sequence is: copy to user, move the remaining string to the beginning of the stream, clean the final part.
    if (highPriority)
    {
       ret = copy_to_user(buff, &(the_object->high_priority_flow[*off]), len);
-      if(len == the_object->valid_bytes_hi - *off)
-      {
-         //Ho letto fino all'ultimo byte presente
-         memset(the_object->high_priority_flow,0,the_object->valid_bytes_hi); //svuoto lo stream
-      }
-      else
-      {
-         buff_temp = kzalloc(strlen(the_object->high_priority_flow)-(len-ret),GFP_ATOMIC);//Alloco un buffer tampone con i restanti char
-         p = the_object->high_priority_flow + (len - ret); // Prendo un char* a partire dall'offset di lettura dentro lo stream
-         strncpy(buff_temp,p,strlen(p)); //copio dall'offset in avanti in un buffer tampone
-         memset(the_object->high_priority_flow,0,the_object->valid_bytes_hi); //svuoto lo stream
-         strncpy(the_object->high_priority_flow,buff_temp,strlen(buff_temp)); //lo riempio con i bytes spostati
-         kfree(buff_temp);
-      }
-      the_object->valid_bytes_hi -= len-ret;//aggiorno i valid bytes
+      delivered_bytes = len-ret;
+      memmove(the_object->high_priority_flow, (the_object->high_priority_flow) + (delivered_bytes),(the_object->valid_bytes_hi) - (delivered_bytes));
+      memset(the_object->high_priority_flow + the_object->valid_bytes_hi - delivered_bytes,0,delivered_bytes);
+      
+      the_object->valid_bytes_hi -= delivered_bytes;//aggiorno i valid bytes
       high_bytes[minor] = the_object->valid_bytes_hi; //aggiorno il param
 
       printk("%s: READ OPERATION COMPLETED - unread bytes = %d\nDelivered bytes: %s\n",MODNAME,ret,buff);
@@ -458,25 +458,11 @@ static ssize_t dev_read(struct file *filp, char *buff, size_t len, loff_t *off)
    else
    {
       ret = copy_to_user(buff, &(the_object->low_priority_flow[*off]), len);
+      delivered_bytes = len-ret;
+      memmove(the_object->low_priority_flow, (the_object->low_priority_flow) + (delivered_bytes),(the_object->valid_bytes_lo) - (delivered_bytes));
+      memset(the_object->low_priority_flow + the_object->valid_bytes_lo - delivered_bytes,0,delivered_bytes);
 
-      if(len == the_object->valid_bytes_lo - *off)
-      {
-         //Ho letto fino all'ultimo byte presente
-         memset(the_object->low_priority_flow,0,the_object->valid_bytes_lo); //svuoto lo stream
-      }
-      else
-      {
-         buff_temp = kzalloc(strlen(the_object->low_priority_flow)-(len-ret),GFP_ATOMIC);//Alloco un buffer tampone con i restanti char
-        
-         p = the_object->low_priority_flow + (len - ret); // Prendo un char* a partire dall'offset di lettura dentro lo stream
-         
-         strncpy(buff_temp,p,strlen(p)); //copio dall'offset in avanti in un buffer tampone
-         memset(the_object->low_priority_flow,0,the_object->valid_bytes_lo); //svuoto lo stream
-         strncpy(the_object->low_priority_flow,buff_temp,strlen(buff_temp)); //lo riempio con i bytes spostati
-         kfree(buff_temp);
-      }
-
-      the_object->valid_bytes_lo -= len-ret;
+      the_object->valid_bytes_lo -= delivered_bytes;
       low_bytes[minor] = the_object->valid_bytes_lo;
 
       printk("%s: READ OPERATION COMPLETED - unread bytes = %d\nDelivered bytes: %s\n",MODNAME,ret,buff);
@@ -516,7 +502,7 @@ static long dev_ioctl(struct file *filp, unsigned int command, unsigned long par
          s->blockingModeOn = 1;
          break;
       case 4:
-         s->awake_timeout = param*HZ;
+         s->awake_timeout = param*(HZ/1000);
          break;
       case 5:
          if(devices_state[minor] == 1)
@@ -554,8 +540,8 @@ int init_module(void)
       init_waitqueue_head(&(objects[i].low_prio_queue));
 
       devices_state[i] = 1;
-      objects[i].isEnabled = &devices_state[i];
 
+      objects[i].isEnabled = &devices_state[i];
       objects[i].valid_bytes_hi = 0;
       objects[i].valid_bytes_lo = 0;
       objects[i].low_priority_flow = NULL;

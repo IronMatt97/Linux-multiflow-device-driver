@@ -166,8 +166,10 @@ int main(int argc, char** argv)
         printf("ERROR - WRONG PARAMETERS: usage -> prog pathname major minors\n");
         return -1;
     }
-    printf("\n----------Multi-flow device driver tester initialization started correctly.\n\n");
-    printf("\t...Creating %d minors for device %s (major %d)\n", minors, path, major);
+	printf("\n----------------------------------------------------------------\n");
+    printf("Multi-flow device driver tester initialization started correctly.");
+	printf("\n----------------------------------------------------------------\n\n");
+    printf("\t...Creating %d minors for device %s (major %d)...\n", minors, path, major);
     for (i = 0; i < minors; i++)
     {
         sprintf(buff, "mknod %s%d c %d %i\n", path, i, major, i);
@@ -179,12 +181,65 @@ int main(int argc, char** argv)
     printf("\tSystem initialized. Minors list:\n");
     for (i = 0; i < minors; i++)
     {
-        printf("\t\t%s\n", minors_list[i]);
+        printf("\t\t%d) %s\n",i, minors_list[i]);
     }
 	printf("\n\nThis is a testing program. Starting tests...\n");
-	printf("\n\tTest - concurrent writes and reads...\n");
+	
 	for(i=0;i<minors;i++)
 	{
+		printf("\n\t|--------------------------|");
+		printf("\n\t Test subject: %s\n",minors_list[i]);
+		printf("\t|--------------------------|\n");
+
+		printf("\n\tTest 1 - concurrent writes...\n");
+		pthread_create(&tid1, NULL, low_priority_thread_w_b, strdup(minors_list[i]));
+		pthread_create(&tid2, NULL, low_priority_thread_w_nb, strdup(minors_list[i]));
+		pthread_create(&tid3, NULL, low_priority_thread_w_b, strdup(minors_list[i]));
+		pthread_create(&tid4, NULL, low_priority_thread_w_nb, strdup(minors_list[i]));
+		pthread_join(tid1,NULL);
+		pthread_join(tid2,NULL);
+		pthread_join(tid3,NULL);
+		pthread_join(tid4,NULL);	
+		
+		sleep(1);
+
+		pthread_create(&tid1, NULL, high_priority_thread_w_b, strdup(minors_list[i]));
+		pthread_create(&tid2, NULL, high_priority_thread_w_nb, strdup(minors_list[i]));
+		pthread_create(&tid3, NULL, high_priority_thread_w_b, strdup(minors_list[i]));
+		pthread_create(&tid4, NULL, high_priority_thread_w_nb, strdup(minors_list[i]));
+		pthread_join(tid1,NULL);
+		pthread_join(tid2,NULL);
+		pthread_join(tid3,NULL);
+		pthread_join(tid4,NULL);
+
+		sleep(1);
+		printf("\t\tdone.\n");
+
+		printf("\n\tTest 2 - concurrent reads...\n");
+		pthread_create(&tid1, NULL, low_priority_thread_r_b, strdup(minors_list[i]));
+		pthread_create(&tid2, NULL, low_priority_thread_r_nb, strdup(minors_list[i]));
+		pthread_create(&tid3, NULL, low_priority_thread_r_b, strdup(minors_list[i]));
+		pthread_create(&tid4, NULL, low_priority_thread_r_nb, strdup(minors_list[i]));
+		pthread_join(tid1,NULL);
+		pthread_join(tid2,NULL);
+		pthread_join(tid3,NULL);
+		pthread_join(tid4,NULL);
+
+		sleep(1);
+
+		pthread_create(&tid1, NULL, high_priority_thread_r_b, strdup(minors_list[i]));
+		pthread_create(&tid2, NULL, high_priority_thread_r_nb, strdup(minors_list[i]));
+		pthread_create(&tid3, NULL, high_priority_thread_r_b, strdup(minors_list[i]));
+		pthread_create(&tid4, NULL, high_priority_thread_r_nb, strdup(minors_list[i]));
+		pthread_join(tid1,NULL);
+		pthread_join(tid2,NULL);
+		pthread_join(tid3,NULL);
+		pthread_join(tid4,NULL);
+
+		sleep(1);
+		printf("\t\tdone.\n");
+
+		printf("\n\tTest 3 - concurrent writes and reads...\n");
 		pthread_create(&tid1, NULL, low_priority_thread_w_b, strdup(minors_list[i]));
 		pthread_create(&tid2, NULL, low_priority_thread_w_nb, strdup(minors_list[i]));
 		pthread_create(&tid3, NULL, low_priority_thread_r_b, strdup(minors_list[i]));
@@ -206,11 +261,12 @@ int main(int argc, char** argv)
 		pthread_join(tid4,NULL);
 
 		sleep(1);
+		printf("\t\tdone.\n");
+		
 	}
-	printf("\t\tdone.\n");
 
 
-	printf("\n\nTesting complete.\n\n");
+	printf("\n\nTesting complete. Use 'dmesg' to see the outcome.\n\n");
 
     return 0;
 }
