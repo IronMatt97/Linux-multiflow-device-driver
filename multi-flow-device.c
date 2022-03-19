@@ -1,3 +1,5 @@
+//@TODO - caso special nel concurrency test problematico, write successive o read successive in una stessa sessione non funzionano
+//Indaga mettendo delle stampe
 /*
 * @file multi-flow-device.c 
 * @brief This is a linux kernel module developed for academic purpose. Using the module allows threads to
