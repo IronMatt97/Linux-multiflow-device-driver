@@ -9,7 +9,6 @@
 int i;
 int action;
 int minors;
-unsigned long timeout;
 char **minors_list;
 pthread_t tid1, tid2, tid3, tid4;
 char buff[50];
@@ -53,7 +52,7 @@ void * low_priority_thread_w_nb(void* path)
 		return NULL;
 	}
 	ioctl(fd,0);
-	ioctl(fd,2);
+	ioctl(fd,6);
 	write(fd,LOW_PRIORITY_DATA,LOW_PRIORITY_DATA_LENGTH);
 	close(fd);
 	return NULL;
@@ -85,7 +84,7 @@ void * high_priority_thread_w_nb(void* path)
 		return NULL;
 	}
 	ioctl(fd,1);
-	ioctl(fd,2);
+	ioctl(fd,6);
 	write(fd,HIGH_PRIORITY_DATA,HIGH_PRIORITY_DATA_LENGTH);
 	close(fd);
 	return NULL;
@@ -117,7 +116,7 @@ void * low_priority_thread_r_nb(void* path)
 		return NULL;
 	}
 	ioctl(fd,0);
-	ioctl(fd,2);
+	ioctl(fd,6);
     read(fd, r2, BYTES_TO_READ);
 	close(fd);
 	return NULL;
@@ -149,7 +148,7 @@ void * high_priority_thread_r_nb(void* path)
 		return NULL;
 	}
 	ioctl(fd,1);
-	ioctl(fd,2);
+	ioctl(fd,6);
     read(fd, r4, BYTES_TO_READ);
 	close(fd);
 	return NULL;

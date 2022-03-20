@@ -70,7 +70,7 @@ void do_ioctl(int fd)
     printf("1 - set high priority mode for RW operations for the device\n");
     printf("2 - set the execution to non-blocking mode\n");
     printf("3 - set the execution to blocking mode\n");
-    printf("4 - set the blocking operations timeout for the device (milliseconds)\n");
+    printf("4 - set the blocking operations timeout for the device (nanoseconds)\n");
     printf("5 - enable/disable the device\n");
     scanf("%d", &action);
     switch (action)
@@ -82,7 +82,7 @@ void do_ioctl(int fd)
         ioctl(fd, 1);
         break;
     case 2:
-        ioctl(fd, 2);
+        ioctl(fd, 6);
         break;
     case 3:
         ioctl(fd, 3);

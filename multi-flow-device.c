@@ -1,5 +1,3 @@
-//@TODO - caso special nel concurrency test problematico, write successive o read successive in una stessa sessione non funzionano
-//Indaga mettendo delle stampe - A volte dava OUT OF STREAM RESOURCES
 /*
 * @file multi-flow-device.c 
 * @brief This is a linux kernel module developed for academic purpose. Using the module allows threads to
@@ -35,7 +33,7 @@ MODULE_DESCRIPTION("A basic device driver implementing multi-flow devices realiz
 #define get_major(session) MAJOR(session->f_inode->i_rdev)  //MAJOR number
 #define get_minor(session) MINOR(session->f_inode->i_rdev)  //MINOR number
 
-#define DEFAULT_BLOCKING_OPS_TIMEOUT 300 //Default timeout (in milliseconds) for blocking operations on a device
+#define DEFAULT_BLOCKING_OPS_TIMEOUT 20 //Default timeout (in nanoseconds) for blocking operations on a device
 #define DEFAULT_BLOCKING_MODE 0  //Default blocking mode of RW operations for a device (0 = non-blocking - 1 = blocking)
 #define DEFAULT_PRIORITY_MODE 0  //Default priority mode for a device (0 = low priority usage - 1 = high priority usage)
 
@@ -100,7 +98,7 @@ void work_function(struct work_struct *work)
    // Implementation of deferred work
    int minor;
    int ret;
-   int ok;
+   int lock_taken;
    int len;
    char * buff;
    long long int off;
@@ -114,13 +112,14 @@ void work_function(struct work_struct *work)
    s = (info->filp)->private_data;
 
    printk("%s: KWORKER DAEMON RUNNING - PID = %d - CPU-core = %d\n",MODNAME,current->pid,smp_processor_id());
+   
    //Lock acquirement phase
    if (s->blockingModeOn)
    {
       __atomic_fetch_add(&low_waiting[minor], 1, __ATOMIC_SEQ_CST);
-      ok = wait_event_timeout(the_object->low_prio_queue, mutex_trylock(&(the_object->mutex_lo)), s->awake_timeout);
+      lock_taken = wait_event_timeout(the_object->low_prio_queue, mutex_trylock(&(the_object->mutex_lo)), s->awake_timeout);
       __atomic_fetch_sub(&low_waiting[minor], 1, __ATOMIC_SEQ_CST);
-      if (!ok)
+      if (lock_taken == 0)
       {
          printk("%s: KWORKER DAEMON: REQUEST TIMEOUT - the requested write ('%s') on minor %d will not be performed.\n", MODNAME, info->buff,minor);
          free_page((unsigned long)info->buff);
@@ -130,8 +129,8 @@ void work_function(struct work_struct *work)
    }
    else
    {
-      ok = mutex_trylock(&(the_object->mutex_lo));
-      if (ok == EBUSY)
+      lock_taken = mutex_trylock(&(the_object->mutex_lo));
+      if (lock_taken == 0)
       {
          printk("%s: KWORKER DAEMON: RESOURCE BUSY - the requested write ('%s') on minor %d will not be performed.\n", MODNAME, info->buff,minor);
          free_page((unsigned long)info->buff);
@@ -192,7 +191,7 @@ static int dev_open(struct inode *inode, struct file *file)
 {
    int minor = get_minor(file);
    file -> private_data = kzalloc(sizeof(session),GFP_ATOMIC);
-   ((session*)(file -> private_data)) -> awake_timeout = DEFAULT_BLOCKING_OPS_TIMEOUT*(HZ/1000);
+   ((session*)(file -> private_data)) -> awake_timeout = DEFAULT_BLOCKING_OPS_TIMEOUT*((HZ)/1000000);//HZ = 250 increments every second
    ((session*)(file -> private_data)) -> blockingModeOn = DEFAULT_BLOCKING_MODE;
    ((session*)(file -> private_data)) -> priorityMode = DEFAULT_PRIORITY_MODE; 
    if (minor >= MINORS)
@@ -225,7 +224,7 @@ static ssize_t dev_write(struct file *filp, const char *buff, size_t len, loff_t
    // Synchronous for high and asynchronous (deferred work) for low priority
    // Blocking mode = waits for lock to go on, Non-blocking mode = doesn't wait for lock if busy and returns
    int ret;
-   int ok;
+   int lock_taken;
    int minor = get_minor(filp);
    object_state *the_object = objects + minor;
    session *s = filp->private_data;
@@ -241,9 +240,9 @@ static ssize_t dev_write(struct file *filp, const char *buff, size_t len, loff_t
       if (highPriority)
       {
          __atomic_fetch_add(&high_waiting[minor], 1, __ATOMIC_SEQ_CST);
-         ok = wait_event_timeout(the_object->high_prio_queue, mutex_trylock(&(the_object->mutex_hi)), s->awake_timeout);
+         lock_taken = wait_event_timeout(the_object->high_prio_queue, mutex_trylock(&(the_object->mutex_hi)), s->awake_timeout);
          __atomic_fetch_sub(&high_waiting[minor], 1, __ATOMIC_SEQ_CST);
-         if (!ok)
+         if (lock_taken == 0)
          {
             printk("%s: REQUEST TIMEOUT - the requested write ('%s') on minor %d will not be performed.\n", MODNAME, buff, minor);
             return -1;
@@ -259,7 +258,6 @@ static ssize_t dev_write(struct file *filp, const char *buff, size_t len, loff_t
             return -1;
          }
          info->filp = filp;
-         //info->buff = buff;
          info->len = len;
          info->buff = (char *)__get_free_page(GFP_KERNEL);
          ret = copy_from_user((info->buff), buff, len);
@@ -275,8 +273,8 @@ static ssize_t dev_write(struct file *filp, const char *buff, size_t len, loff_t
    {
       if (highPriority)
       {
-         ok = mutex_trylock(&(the_object->mutex_hi));
-         if (ok == EBUSY)
+         lock_taken = mutex_trylock(&(the_object->mutex_hi));
+         if (lock_taken == 0)
          {
             printk("%s: RESOURCE BUSY - the requested write ('%s') on minor %d will not be performed.\n", MODNAME, buff, minor);
             return -1;
@@ -292,7 +290,6 @@ static ssize_t dev_write(struct file *filp, const char *buff, size_t len, loff_t
             return -1;
          }
          info->filp = filp;
-         //info->buff = buff;
          info->len = len;
          info->buff = (char *)__get_free_page(GFP_KERNEL);
          ret = copy_from_user((info->buff), buff, len);
@@ -363,7 +360,7 @@ static ssize_t dev_read(struct file *filp, char *buff, size_t len, loff_t *off)
    // Blocking mode = waits for lock to go on, Non-blocking mode = doesn't wait for lock if busy and returns
    int minor = get_minor(filp);
    int ret;
-   int ok;
+   int lock_taken;
    int delivered_bytes;
    object_state *the_object = objects + minor;
    session *s = filp->private_data;
@@ -379,9 +376,9 @@ static ssize_t dev_read(struct file *filp, char *buff, size_t len, loff_t *off)
       if (highPriority)
       {
          __atomic_fetch_add(&high_waiting[minor], 1, __ATOMIC_SEQ_CST);
-         ok = wait_event_timeout(the_object->high_prio_queue, mutex_trylock(&(the_object->mutex_hi)), s->awake_timeout);
+         lock_taken = wait_event_timeout(the_object->high_prio_queue, mutex_trylock(&(the_object->mutex_hi)), s->awake_timeout);
          __atomic_fetch_sub(&high_waiting[minor], 1, __ATOMIC_SEQ_CST);
-         if (!ok)
+         if (lock_taken == 0)
          {
             printk("%s: REQUEST TIMEOUT - the requested read (%ld bytes) on minor %d will not be performed.\n", MODNAME, len, minor);
             return -1;
@@ -390,9 +387,9 @@ static ssize_t dev_read(struct file *filp, char *buff, size_t len, loff_t *off)
       else
       {
          __atomic_fetch_add(&low_waiting[minor], 1, __ATOMIC_SEQ_CST);
-         ok = wait_event_timeout(the_object->low_prio_queue, mutex_trylock(&(the_object->mutex_lo)), s->awake_timeout);
+         lock_taken = wait_event_timeout(the_object->low_prio_queue, mutex_trylock(&(the_object->mutex_lo)), s->awake_timeout);
          __atomic_fetch_sub(&low_waiting[minor], 1, __ATOMIC_SEQ_CST);
-         if (!ok)
+         if (lock_taken == 0)
          {
             printk("%s: REQUEST TIMEOUT - the requested read (%ld bytes) on minor %d will not be performed.\n", MODNAME, len, minor);
             return -1;
@@ -404,8 +401,8 @@ static ssize_t dev_read(struct file *filp, char *buff, size_t len, loff_t *off)
    {
       if (highPriority)
       {
-         ok = mutex_trylock(&(the_object->mutex_hi));
-         if (ok == EBUSY)
+         lock_taken = mutex_trylock(&(the_object->mutex_hi));
+         if (lock_taken == 0)
          {
             printk("%s: RESOURCE BUSY - the requested read (%ld bytes) on minor %d will not be performed.\n", MODNAME, len, minor);
             return -1;
@@ -413,8 +410,8 @@ static ssize_t dev_read(struct file *filp, char *buff, size_t len, loff_t *off)
       }
       else
       {
-         ok = mutex_trylock(&(the_object->mutex_lo));
-         if (ok == EBUSY)
+         lock_taken = mutex_trylock(&(the_object->mutex_lo));
+         if (lock_taken == 0)
          {
             printk("%s: RESOURCE BUSY - the requested read (%ld bytes) on minor %d will not be performed.\n", MODNAME, len, minor);
             return -1;
@@ -457,8 +454,8 @@ static ssize_t dev_read(struct file *filp, char *buff, size_t len, loff_t *off)
       memmove(the_object->high_priority_flow, (the_object->high_priority_flow) + (delivered_bytes),(the_object->valid_bytes_hi) - (delivered_bytes));
       memset(the_object->high_priority_flow + the_object->valid_bytes_hi - delivered_bytes,0,delivered_bytes);
       
-      the_object->valid_bytes_hi -= delivered_bytes;//aggiorno i valid bytes
-      high_bytes[minor] = the_object->valid_bytes_hi; //aggiorno il param
+      the_object->valid_bytes_hi -= delivered_bytes;//update valid bytes
+      high_bytes[minor] = the_object->valid_bytes_hi; //update param
 
       printk("%s: READ OPERATION COMPLETED - unread bytes = %d\nDelivered bytes: %s\n",MODNAME,ret,buff);
       printk("%s: UPDATED FLOWS\nLOW_PRIORITY_FLOW: %s\nHIGH_PRIORITY_FLOW: %s\n", MODNAME, the_object->low_priority_flow, the_object->high_priority_flow);
@@ -505,14 +502,14 @@ static long dev_ioctl(struct file *filp, unsigned int command, unsigned long par
       case 1:
          s->priorityMode = 1;
          break;
-      case 2:
+      case 6:
          s->blockingModeOn = 0;
          break;
       case 3:
          s->blockingModeOn = 1;
          break;
       case 4:
-         s->awake_timeout = param*(HZ/1000);
+         s->awake_timeout = param*((HZ)/1000000);//HZ = 250 increments every second
          break;
       case 5:
          if(devices_state[minor] == 1)
