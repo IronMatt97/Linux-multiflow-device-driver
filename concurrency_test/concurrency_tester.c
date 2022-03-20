@@ -154,24 +154,6 @@ void * high_priority_thread_r_nb(void* path)
 	close(fd);
 	return NULL;
 }
-void * special(void* path)
-{
-	printf("sono il thread\n");
-	char* device = (char*)path;
-	int fd = open(device,O_RDWR|O_APPEND);
-	if(fd == -1)
-	{
-		printf("ERROR - something went wrong opening device %s. Returning...\n",device);
-		return NULL;
-	}
-	ioctl(fd,1);
-	ioctl(fd,3);
-	write(fd,HIGH_PRIORITY_DATA,HIGH_PRIORITY_DATA_LENGTH);
-
-    read(fd, r4, BYTES_TO_READ);
-	close(fd);
-	return NULL;
-}
 int main(int argc, char** argv)
 {
 	int major = strtol(argv[2],NULL,10);
@@ -204,7 +186,7 @@ int main(int argc, char** argv)
 	printf("\n\nThis is a testing program. Starting tests...\n");
 	
 	for(i=0;i<minors;i++)
-	{/*
+	{
 		printf("\n\t|--------------------------|");
 		printf("\n\t Test subject: %s\n",minors_list[i]);
 		printf("\t|--------------------------|\n");
@@ -280,11 +262,6 @@ int main(int argc, char** argv)
 
 		sleep(1);
 		printf("\t\tdone.\n");
-		*/
-		printf("Special test\n");
-		pthread_create(&tid4, NULL, special, strdup(minors_list[i]));
-		pthread_join(tid4,NULL);
-		printf("thread launched\n");
 	}
 
 

@@ -1,5 +1,5 @@
 //@TODO - caso special nel concurrency test problematico, write successive o read successive in una stessa sessione non funzionano
-//Indaga mettendo delle stampe
+//Indaga mettendo delle stampe - A volte dava OUT OF STREAM RESOURCES
 /*
 * @file multi-flow-device.c 
 * @brief This is a linux kernel module developed for academic purpose. Using the module allows threads to
@@ -140,8 +140,8 @@ void work_function(struct work_struct *work)
       }
    }
    //Lock acquired
+   info->off = 0;
    (info->off) += the_object->valid_bytes_lo;
-
    // Only low priority conditions possible here
    // if offset too large
    if ((info->off) + (info->len) >= OBJECT_MAX_SIZE)
@@ -303,12 +303,16 @@ static ssize_t dev_write(struct file *filp, const char *buff, size_t len, loff_t
          return 0;
       }
    }
-
+   
+   *off = 0;
    if (highPriority)
+   {
       *off += the_object->valid_bytes_hi;
+   }
    else
+   {
       *off += the_object->valid_bytes_lo;
-
+   }
 
    // Only high priority conditions possible here
    // if offset too large
@@ -419,17 +423,20 @@ static ssize_t dev_read(struct file *filp, char *buff, size_t len, loff_t *off)
    }
    //Lock acquired
 
+   *off = 0;
    // if offset beyond the current stream size
    if ((!highPriority && *off > the_object->valid_bytes_lo))
    {
       mutex_unlock(&(the_object->mutex_lo));
       wake_up(&(the_object->low_prio_queue));
+      printk("%s: ERROR - out of stream resources.\n",MODNAME);
       return 0;
    }
    else if ((highPriority && *off > the_object->valid_bytes_hi))
    {
       mutex_unlock(&(the_object->mutex_hi));
       wake_up(&(the_object->high_prio_queue));
+      printk("%s: ERROR - out of stream resources.\n",MODNAME);
       return 0;
    }
 
@@ -441,6 +448,7 @@ static ssize_t dev_read(struct file *filp, char *buff, size_t len, loff_t *off)
    {
       len = the_object->valid_bytes_hi - *off;
    }
+
    // In order to perform a read the sequence is: copy to user, move the remaining string to the beginning of the stream, clean the final part.
    if (highPriority)
    {
