@@ -1,3 +1,8 @@
+//TODO CAMBIA LA STRUTTURA DELLE RICHIESTE, METTI UN PROMPT ULTERIORE CHE TI FA SCEGLIERE VERSO QUALE DEV APRIRE SESSIONE
+//E FINCHE NON TI STUFI NON LA CHIUDI.
+//Inoltre rifai partire i test, ma fallo stavolta per multipli device
+//Pulisci il sorgente principale multi-flow-device.c
+//pulisci la cartella da tutti i file inutili da github
 #include <unistd.h>
 #include <fcntl.h>
 #include <stdio.h>

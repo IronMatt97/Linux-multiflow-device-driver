@@ -1,0 +1,120 @@
+!_TAG_FILE_FORMAT	2	/extended format; --format=1 will not append ;" to lines/
+!_TAG_FILE_SORTED	1	/0=unsorted, 1=sorted, 2=foldcase/
+!_TAG_OUTPUT_MODE	u-ctags	/u-ctags or e-ctags/
+!_TAG_PROGRAM_AUTHOR	Universal Ctags Team	//
+!_TAG_PROGRAM_NAME	Universal Ctags	/Derived from Exuberant Ctags/
+!_TAG_PROGRAM_URL	https://ctags.io/	/official site/
+!_TAG_PROGRAM_VERSION	0.0.0	//
+BYTES_TO_READ	concurrency_test/concurrency_tester.c	/^#define BYTES_TO_READ /;"	d	file:
+BYTES_TO_READ	functions_test/function_tester.c	/^#define BYTES_TO_READ /;"	d	file:
+BYTES_TO_READ	performance_test/time_tester.c	/^#define BYTES_TO_READ /;"	d	file:
+DATA	functions_test/function_tester.c	/^#define DATA /;"	d	file:
+DEFAULT_BLOCKING_MODE	multi-flow-device.c	/^#define DEFAULT_BLOCKING_MODE /;"	d	file:
+DEFAULT_BLOCKING_OPS_TIMEOUT	multi-flow-device.c	/^#define DEFAULT_BLOCKING_OPS_TIMEOUT /;"	d	file:
+DEFAULT_PRIORITY_MODE	multi-flow-device.c	/^#define DEFAULT_PRIORITY_MODE /;"	d	file:
+DEVICE_NAME	multi-flow-device.c	/^#define DEVICE_NAME /;"	d	file:
+EXPORT_SYMTAB	multi-flow-device.c	/^#define EXPORT_SYMTAB$/;"	d	file:
+HIGH_PRIORITY_DATA	concurrency_test/concurrency_tester.c	/^#define HIGH_PRIORITY_DATA /;"	d	file:
+HIGH_PRIORITY_DATA	performance_test/time_tester.c	/^#define HIGH_PRIORITY_DATA /;"	d	file:
+HIGH_PRIORITY_DATA_LENGTH	concurrency_test/concurrency_tester.c	/^#define HIGH_PRIORITY_DATA_LENGTH /;"	d	file:
+HIGH_PRIORITY_DATA_LENGTH	performance_test/time_tester.c	/^#define HIGH_PRIORITY_DATA_LENGTH /;"	d	file:
+INCLUDE_VERMAGIC	multi-flow-device.mod.c	/^#define INCLUDE_VERMAGIC$/;"	d	file:
+LOW_PRIORITY_DATA	concurrency_test/concurrency_tester.c	/^#define LOW_PRIORITY_DATA /;"	d	file:
+LOW_PRIORITY_DATA_LENGTH	concurrency_test/concurrency_tester.c	/^#define LOW_PRIORITY_DATA_LENGTH /;"	d	file:
+MINORS	multi-flow-device.c	/^#define MINORS /;"	d	file:
+MODNAME	multi-flow-device.c	/^#define MODNAME /;"	d	file:
+Major	multi-flow-device.c	/^static int Major;$/;"	v	typeref:typename:int	file:
+NUM_TESTS	performance_test/time_tester.c	/^#define NUM_TESTS /;"	d	file:
+NUM_THREADS	performance_test/time_tester.c	/^#define NUM_THREADS /;"	d	file:
+OBJECT_MAX_SIZE	multi-flow-device.c	/^#define OBJECT_MAX_SIZE /;"	d	file:
+REPEAT	functions_test/function_tester.c	/^#define REPEAT /;"	d	file:
+SIZE	functions_test/function_tester.c	/^#define SIZE /;"	d	file:
+____versions	multi-flow-device.mod.c	/^static const struct modversion_info ____versions[]$/;"	v	typeref:typename:const struct modversion_info[]__used __section ("")	file:
+_object_state	multi-flow-device.c	/^typedef struct _object_state  \/\/ This struct represents a single device$/;"	s	file:
+_packed_work	multi-flow-device.c	/^typedef struct _packed_work \/\/ Work structure to write on devices in deferred mode$/;"	s	file:
+action	concurrency_test/concurrency_tester.c	/^int action;$/;"	v	typeref:typename:int
+action	functions_test/function_tester.c	/^int action;$/;"	v	typeref:typename:int
+all	Makefile	/^all:$/;"	t
+all	concurrency_test/Makefile	/^all:$/;"	t
+all	functions_test/Makefile	/^all:$/;"	t
+all	performance_test/Makefile	/^all:$/;"	t
+awake_timeout	multi-flow-device.c	/^   unsigned long awake_timeout;       \/\/ timeout regulating the awake of blocking operations$/;"	m	struct:session	typeref:typename:unsigned long	file:
+blockingModeOn	multi-flow-device.c	/^   int blockingModeOn;                \/\/ 0 = non-blocking RW ops, 1 = blocking RW ops$/;"	m	struct:session	typeref:typename:int	file:
+blocking_read_hi	performance_test/time_tester.c	/^void * blocking_read_hi(void* path)$/;"	f	typeref:typename:void *
+blocking_write_hi	performance_test/time_tester.c	/^void * blocking_write_hi(void* path)$/;"	f	typeref:typename:void *
+buff	concurrency_test/concurrency_tester.c	/^char buff[50];$/;"	v	typeref:typename:char[50]
+buff	functions_test/function_tester.c	/^char buff[4096];$/;"	v	typeref:typename:char[4096]
+buff	multi-flow-device.c	/^   char *buff; \/\/data string$/;"	m	struct:_packed_work	typeref:typename:char *	file:
+choose_action	functions_test/function_tester.c	/^int choose_action()$/;"	f	typeref:typename:int
+choose_device	functions_test/function_tester.c	/^char *choose_device()$/;"	f	typeref:typename:char *
+clean	Makefile	/^clean:$/;"	t
+cleanup_module	multi-flow-device.c	/^void cleanup_module(void)$/;"	f	typeref:typename:void
+default_prompt	functions_test/function_tester.c	/^void default_prompt(void)$/;"	f	typeref:typename:void
+dev_ioctl	multi-flow-device.c	/^static long dev_ioctl(struct file *filp, unsigned int command, unsigned long param)$/;"	f	typeref:typename:long	file:
+dev_open	multi-flow-device.c	/^static int dev_open(struct inode *inode, struct file *file)$/;"	f	typeref:typename:int	file:
+dev_read	multi-flow-device.c	/^static ssize_t dev_read(struct file *filp, char *buff, size_t len, loff_t *off)$/;"	f	typeref:typename:ssize_t	file:
+dev_release	multi-flow-device.c	/^static int dev_release(struct inode *inode, struct file *file)$/;"	f	typeref:typename:int	file:
+dev_write	multi-flow-device.c	/^static ssize_t dev_write(struct file *filp, const char *buff, size_t len, loff_t *off)$/;"	f	typeref:typename:ssize_t	file:
+devices_state	multi-flow-device.c	/^int devices_state[MINORS];$/;"	v	typeref:typename:int[]
+do_ioctl	functions_test/function_tester.c	/^void do_ioctl(int fd)$/;"	f	typeref:typename:void
+do_read	functions_test/function_tester.c	/^void do_read(int fd)$/;"	f	typeref:typename:void
+do_write	functions_test/function_tester.c	/^void do_write(int fd)$/;"	f	typeref:typename:void
+filp	multi-flow-device.c	/^   struct file *filp;   \/\/pointer to session$/;"	m	struct:_packed_work	typeref:struct:file *	file:
+fops	multi-flow-device.c	/^static struct file_operations fops = {$/;"	v	typeref:struct:file_operations	file:
+fptr	performance_test/time_tester.c	/^FILE *fptr;$/;"	v	typeref:typename:FILE *
+get_major	multi-flow-device.c	/^#define get_major(/;"	d	file:
+get_minor	multi-flow-device.c	/^#define get_minor(/;"	d	file:
+high_bytes	multi-flow-device.c	/^int high_bytes[MINORS];$/;"	v	typeref:typename:int[]
+high_prio_queue	multi-flow-device.c	/^   wait_queue_head_t high_prio_queue; \/\/ wait event queue for threads waiting to perform actio/;"	m	struct:_object_state	typeref:typename:wait_queue_head_t	file:
+high_priority_flow	multi-flow-device.c	/^   char *high_priority_flow;          \/\/ high priority data stream$/;"	m	struct:_object_state	typeref:typename:char *	file:
+high_priority_thread_r_b	concurrency_test/concurrency_tester.c	/^void * high_priority_thread_r_b(void* path)$/;"	f	typeref:typename:void *
+high_priority_thread_r_nb	concurrency_test/concurrency_tester.c	/^void * high_priority_thread_r_nb(void* path)$/;"	f	typeref:typename:void *
+high_priority_thread_w_b	concurrency_test/concurrency_tester.c	/^void * high_priority_thread_w_b(void* path)$/;"	f	typeref:typename:void *
+high_priority_thread_w_nb	concurrency_test/concurrency_tester.c	/^void * high_priority_thread_w_nb(void* path)$/;"	f	typeref:typename:void *
+high_waiting	multi-flow-device.c	/^int high_waiting[MINORS];$/;"	v	typeref:typename:int[]
+i	concurrency_test/concurrency_tester.c	/^int i;$/;"	v	typeref:typename:int
+i	functions_test/function_tester.c	/^int i;$/;"	v	typeref:typename:int
+i	performance_test/time_tester.c	/^int i,k;$/;"	v	typeref:typename:int
+init_module	multi-flow-device.c	/^int init_module(void)$/;"	f	typeref:typename:int
+isEnabled	multi-flow-device.c	/^   int *isEnabled;                    \/\/ pointer to module param representing if a device is e/;"	m	struct:_object_state	typeref:typename:int *	file:
+k	performance_test/time_tester.c	/^int i,k;$/;"	v	typeref:typename:int
+len	multi-flow-device.c	/^   size_t len; \/\/data size variable$/;"	m	struct:_packed_work	typeref:typename:size_t	file:
+low_bytes	multi-flow-device.c	/^int low_bytes[MINORS];$/;"	v	typeref:typename:int[]
+low_prio_queue	multi-flow-device.c	/^   wait_queue_head_t low_prio_queue;  \/\/ wait event queue for threads waiting to perform actio/;"	m	struct:_object_state	typeref:typename:wait_queue_head_t	file:
+low_priority_flow	multi-flow-device.c	/^   char *low_priority_flow;           \/\/ low priority data stream$/;"	m	struct:_object_state	typeref:typename:char *	file:
+low_priority_thread_r_b	concurrency_test/concurrency_tester.c	/^void * low_priority_thread_r_b(void* path)$/;"	f	typeref:typename:void *
+low_priority_thread_r_nb	concurrency_test/concurrency_tester.c	/^void * low_priority_thread_r_nb(void* path)$/;"	f	typeref:typename:void *
+low_priority_thread_w_b	concurrency_test/concurrency_tester.c	/^void * low_priority_thread_w_b(void* path)$/;"	f	typeref:typename:void *
+low_priority_thread_w_nb	concurrency_test/concurrency_tester.c	/^void * low_priority_thread_w_nb(void* path)$/;"	f	typeref:typename:void *
+low_waiting	multi-flow-device.c	/^int low_waiting[MINORS];$/;"	v	typeref:typename:int[]
+main	concurrency_test/concurrency_tester.c	/^int main(int argc, char** argv)$/;"	f	typeref:typename:int
+main	functions_test/function_tester.c	/^int main(int argc, char **argv)$/;"	f	typeref:typename:int
+main	performance_test/time_tester.c	/^void main(int argc, char **argv)$/;"	f	typeref:typename:void
+minor	performance_test/time_tester.c	/^char minor[50];$/;"	v	typeref:typename:char[50]
+minors	concurrency_test/concurrency_tester.c	/^int minors;$/;"	v	typeref:typename:int
+minors	functions_test/function_tester.c	/^int minors;$/;"	v	typeref:typename:int
+minors_list	concurrency_test/concurrency_tester.c	/^char **minors_list;$/;"	v	typeref:typename:char **
+minors_list	functions_test/function_tester.c	/^char **minors_list;$/;"	v	typeref:typename:char **
+mutex	performance_test/time_tester.c	/^pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;$/;"	v	typeref:typename:pthread_mutex_t
+mutex_hi	multi-flow-device.c	/^   struct mutex mutex_hi;  \/\/ synchronization utility for high priority flows$/;"	m	struct:_object_state	typeref:struct:mutex	file:
+mutex_lo	multi-flow-device.c	/^   struct mutex mutex_lo;  \/\/ synchronization utility for low priority flows$/;"	m	struct:_object_state	typeref:struct:mutex	file:
+object_state	multi-flow-device.c	/^} object_state;$/;"	t	typeref:struct:_object_state	file:
+objects	multi-flow-device.c	/^object_state objects[MINORS];$/;"	v	typeref:typename:object_state[]
+off	multi-flow-device.c	/^   long long int off;   \/\/session offset$/;"	m	struct:_packed_work	typeref:typename:long long int	file:
+packed_work	multi-flow-device.c	/^} packed_work;$/;"	t	typeref:struct:_packed_work	file:
+priorityMode	multi-flow-device.c	/^   int priorityMode;                  \/\/ 0 = low priority usage, 1 = high priority usage$/;"	m	struct:session	typeref:typename:int	file:
+r1	concurrency_test/concurrency_tester.c	/^char r1[BYTES_TO_READ];$/;"	v	typeref:typename:char[]
+r2	concurrency_test/concurrency_tester.c	/^char r2[BYTES_TO_READ];$/;"	v	typeref:typename:char[]
+r3	concurrency_test/concurrency_tester.c	/^char r3[BYTES_TO_READ];$/;"	v	typeref:typename:char[]
+r4	concurrency_test/concurrency_tester.c	/^char r4[BYTES_TO_READ];$/;"	v	typeref:typename:char[]
+readbuff	performance_test/time_tester.c	/^char readbuff[BYTES_TO_READ];$/;"	v	typeref:typename:char[]
+session	multi-flow-device.c	/^typedef struct session  \/\/This struct represents an opened session to a device$/;"	s	file:
+session	multi-flow-device.c	/^} session;$/;"	t	typeref:struct:session	file:
+tid1	concurrency_test/concurrency_tester.c	/^pthread_t tid1, tid2, tid3, tid4;$/;"	v	typeref:typename:pthread_t
+tid2	concurrency_test/concurrency_tester.c	/^pthread_t tid1, tid2, tid3, tid4;$/;"	v	typeref:typename:pthread_t
+tid3	concurrency_test/concurrency_tester.c	/^pthread_t tid1, tid2, tid3, tid4;$/;"	v	typeref:typename:pthread_t
+tid4	concurrency_test/concurrency_tester.c	/^pthread_t tid1, tid2, tid3, tid4;$/;"	v	typeref:typename:pthread_t
+valid_bytes_hi	multi-flow-device.c	/^   int valid_bytes_hi;                \/\/ written bytes present in the high priority flow$/;"	m	struct:_object_state	typeref:typename:int	file:
+valid_bytes_lo	multi-flow-device.c	/^   int valid_bytes_lo;                \/\/ written bytes present in the low priority flow$/;"	m	struct:_object_state	typeref:typename:int	file:
+work	multi-flow-device.c	/^   struct work_struct work;   \/\/defined work for work queue$/;"	m	struct:_packed_work	typeref:struct:work_struct	file:
+work_function	multi-flow-device.c	/^void work_function(struct work_struct *work)$/;"	f	typeref:typename:void

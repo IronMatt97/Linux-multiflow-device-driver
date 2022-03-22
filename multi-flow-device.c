@@ -37,7 +37,7 @@ MODULE_DESCRIPTION("A basic device driver implementing multi-flow devices realiz
 #define DEFAULT_BLOCKING_MODE 0  //Default blocking mode of RW operations for a device (0 = non-blocking - 1 = blocking)
 #define DEFAULT_PRIORITY_MODE 0  //Default priority mode for a device (0 = low priority usage - 1 = high priority usage)
 
-#define OBJECT_MAX_SIZE (4096)
+
 
 typedef struct _object_state  // This struct represents a single device
 {
@@ -143,15 +143,7 @@ void work_function(struct work_struct *work)
    (info->off) += the_object->valid_bytes_lo;
    // Only low priority conditions possible here
    // if offset too large
-   if ((info->off) + (info->len) >= OBJECT_MAX_SIZE)
-   {
-      free_page((unsigned long)info->buff);
-      kfree(info);
-      mutex_unlock(&(the_object->mutex_lo));
-      wake_up(&(the_object->low_prio_queue));
-      printk("%s: KWORKER DAEMON: ERROR - No space left on device\n", MODNAME);
-      return;
-   }
+   
    // if offset beyond the current stream size
    if (((info->off) > the_object->valid_bytes_lo))
    {
@@ -167,9 +159,9 @@ void work_function(struct work_struct *work)
    buff = info->buff;
    off = info->off;
 
-   if ((OBJECT_MAX_SIZE - (info->off)) < len)
-      len = OBJECT_MAX_SIZE - (info->off);
-
+  
+   the_object->low_priority_flow = krealloc(the_object->low_priority_flow,(the_object->valid_bytes_lo)+len,GFP_KERNEL);
+   memset(the_object->low_priority_flow + the_object->valid_bytes_lo,0,len);
    strncat(the_object->low_priority_flow,buff,len);
    info->off +=len;
    the_object->valid_bytes_lo = (info->off);
@@ -312,14 +304,7 @@ static ssize_t dev_write(struct file *filp, const char *buff, size_t len, loff_t
    }
 
    // Only high priority conditions possible here
-   // if offset too large
-   if (*off +len >= OBJECT_MAX_SIZE)
-   {
-      mutex_unlock(&(the_object->mutex_hi));
-      wake_up(&(the_object->high_prio_queue));
-      printk("%s: ERROR - No space left on device\n", MODNAME);
-      return -ENOSPC;
-   }
+   
    // if offset beyond the current stream size
    if ((*off > the_object->valid_bytes_hi))
    {
@@ -329,23 +314,15 @@ static ssize_t dev_write(struct file *filp, const char *buff, size_t len, loff_t
       return -ENOSR;
    }
 
-   if ((OBJECT_MAX_SIZE - *off) < len)
-      len = OBJECT_MAX_SIZE - *off;
 
-   if (highPriority)
-   {
-      ret = copy_from_user(&(the_object->high_priority_flow[*off]), buff, len);
-      *off += (len - ret);
-      the_object->valid_bytes_hi = *off;
-      high_bytes[minor] = the_object->valid_bytes_hi;
-   }
-   else
-   {
-      ret = copy_from_user(&(the_object->low_priority_flow[*off]), buff, len);
-      *off += (len - ret);
-      the_object->valid_bytes_lo = *off;
-      low_bytes[minor] = the_object->valid_bytes_lo;
-   }
+   //Only high priority operations
+   the_object->high_priority_flow = krealloc(the_object->high_priority_flow,(the_object->valid_bytes_hi)+len,GFP_KERNEL);
+   memset(the_object->high_priority_flow + the_object->valid_bytes_hi,0,len);
+   ret = copy_from_user(&(the_object->high_priority_flow[*off]), buff, len);
+   *off += (len - ret);
+   the_object->valid_bytes_hi = *off;
+   high_bytes[minor] = the_object->valid_bytes_hi;
+
 
    printk("%s: WRITE OPERATION COMPLETED - uncopied bytes = %d\n",MODNAME,ret);
    printk("%s: UPDATED FLOWS\nLOW_PRIORITY_FLOW: %s\nHIGH_PRIORITY_FLOW: %s\n", MODNAME, the_object->low_priority_flow, the_object->high_priority_flow);
@@ -453,7 +430,8 @@ static ssize_t dev_read(struct file *filp, char *buff, size_t len, loff_t *off)
       delivered_bytes = len-ret;
       memmove(the_object->high_priority_flow, (the_object->high_priority_flow) + (delivered_bytes),(the_object->valid_bytes_hi) - (delivered_bytes));
       memset(the_object->high_priority_flow + the_object->valid_bytes_hi - delivered_bytes,0,delivered_bytes);
-      
+      if(delivered_bytes != 0)
+         the_object->high_priority_flow = krealloc(the_object->high_priority_flow,(the_object->valid_bytes_hi)-delivered_bytes,GFP_KERNEL);
       the_object->valid_bytes_hi -= delivered_bytes;//update valid bytes
       high_bytes[minor] = the_object->valid_bytes_hi; //update param
 
@@ -468,7 +446,8 @@ static ssize_t dev_read(struct file *filp, char *buff, size_t len, loff_t *off)
       delivered_bytes = len-ret;
       memmove(the_object->low_priority_flow, (the_object->low_priority_flow) + (delivered_bytes),(the_object->valid_bytes_lo) - (delivered_bytes));
       memset(the_object->low_priority_flow + the_object->valid_bytes_lo - delivered_bytes,0,delivered_bytes);
-
+      if(delivered_bytes != 0)
+         the_object->low_priority_flow = krealloc(the_object->low_priority_flow,(the_object->valid_bytes_lo)-delivered_bytes,GFP_KERNEL);
       the_object->valid_bytes_lo -= delivered_bytes;
       low_bytes[minor] = the_object->valid_bytes_lo;
 
@@ -478,7 +457,7 @@ static ssize_t dev_read(struct file *filp, char *buff, size_t len, loff_t *off)
       wake_up(&(the_object->low_prio_queue));
    }
 
-   return len - ret;
+   return delivered_bytes;
 }
 
 static long dev_ioctl(struct file *filp, unsigned int command, unsigned long param)
@@ -552,11 +531,11 @@ int init_module(void)
       objects[i].valid_bytes_hi = 0;
       objects[i].valid_bytes_lo = 0;
       objects[i].low_priority_flow = NULL;
-      objects[i].low_priority_flow = (char *)__get_free_page(GFP_KERNEL);
+      objects[i].low_priority_flow = kzalloc(0,GFP_ATOMIC);
       objects[i].high_priority_flow = NULL;
-      objects[i].high_priority_flow = (char *)__get_free_page(GFP_KERNEL);
-      if (objects[i].low_priority_flow == NULL || objects[i].high_priority_flow == NULL)
-         goto revert_allocation;
+      objects[i].high_priority_flow = kzalloc(0,GFP_ATOMIC);
+      //if (objects[i].low_priority_flow == NULL || objects[i].high_priority_flow == NULL)
+      //   goto revert_allocation;
 
       low_bytes[i] = objects[i].valid_bytes_lo;
       high_bytes[i] = objects[i].valid_bytes_hi;
@@ -572,17 +551,17 @@ int init_module(void)
       printk("%s: ERROR - device registration failed\n", MODNAME);
       return Major;
    }
-   printk(KERN_INFO "%s: DEVICE REGISTERED - Assigned MAJOR = %d\n", MODNAME, Major);
+   printk("%s: DEVICE REGISTERED - Assigned MAJOR = %d\n", MODNAME, Major);
    return 0;
 
-revert_allocation:
+/*revert_allocation:
    for (; i >= 0; i--)
    {
       free_page((unsigned long)objects[i].low_priority_flow);
       free_page((unsigned long)objects[i].high_priority_flow);
    }
    printk("%s: ERROR - Requested memory is not available\n", MODNAME);
-   return -ENOMEM;
+   return -ENOMEM;*/
 }
 
 void cleanup_module(void)
@@ -590,10 +569,12 @@ void cleanup_module(void)
    int i;
    for (i = 0; i < MINORS; i++)
    {
-      free_page((unsigned long)objects[i].low_priority_flow);
-      free_page((unsigned long)objects[i].high_priority_flow);
+      //free_page((unsigned long)objects[i].low_priority_flow);
+      //free_page((unsigned long)objects[i].high_priority_flow);
+      kfree(objects[i].low_priority_flow);
+      kfree(objects[i].high_priority_flow);
    }
    unregister_chrdev(Major, DEVICE_NAME);
-   printk(KERN_INFO "%s: DEVICE WITH MAJOR = %d WAS SUCCESSFULLY UNREGISTERED\n", MODNAME, Major);
+   printk("%s: DEVICE WITH MAJOR = %d WAS SUCCESSFULLY UNREGISTERED\n", MODNAME, Major);
    return;
 }
