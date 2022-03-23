@@ -1,3 +1,11 @@
+/*
+* @file time-tester.c 
+* @brief A testing utility to measure system's performances
+*
+* @author Matteo Ferretti
+*
+* @date March 1, 2022
+*/
 #include <unistd.h>
 #include <fcntl.h>
 #include <stdio.h>

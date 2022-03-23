@@ -33,11 +33,11 @@ MODULE_DESCRIPTION("A basic device driver implementing multi-flow devices realiz
 #define get_major(session) MAJOR(session->f_inode->i_rdev)  //MAJOR number
 #define get_minor(session) MINOR(session->f_inode->i_rdev)  //MINOR number
 
-#define DEFAULT_BLOCKING_OPS_TIMEOUT 20 //Default timeout (in nanoseconds) for blocking operations on a device
+#define DEFAULT_BLOCKING_OPS_TIMEOUT 20 //Default timeout (in microseconds) for blocking operations on a device
 #define DEFAULT_BLOCKING_MODE 0  //Default blocking mode of RW operations for a device (0 = non-blocking - 1 = blocking)
 #define DEFAULT_PRIORITY_MODE 0  //Default priority mode for a device (0 = low priority usage - 1 = high priority usage)
 
-
+#define EMPTY_BUFF "[empty]"
 
 typedef struct _object_state  // This struct represents a single device
 {
@@ -71,7 +71,7 @@ typedef struct _packed_work // Work structure to write on devices in deferred mo
 
 static int Major;
 
-#define MINORS 128
+#define MINORS 128   //Support up to 128 minors
 object_state objects[MINORS];
 
 //Arrays used for module parameters
@@ -92,6 +92,23 @@ MODULE_PARM_DESC(high_bytes, "Array reporting the number of current valid bytes 
 MODULE_PARM_DESC(low_bytes, "Array reporting the number of current valid bytes in the low priority stream of every device.");
 MODULE_PARM_DESC(high_waiting, "Array describing the number of threads waiting on the high priority stream of every device.");
 MODULE_PARM_DESC(low_waiting, "Array describing the number of threads waiting on the low priority stream of every device.");
+
+void print_streams(char *low_stream,char *high_stream,int low_bytes, int high_bytes)
+{
+   char * l;
+   char * h;
+   if(low_bytes == 0)
+      l=EMPTY_BUFF;
+   else
+      l=low_stream;
+   if(high_bytes == 0)
+      h=EMPTY_BUFF;
+   else
+      h=high_stream;
+
+   printk("%s: UPDATED FLOWS\nLOW_PRIORITY_FLOW: %s\nHIGH_PRIORITY_FLOW: %s\n", MODNAME,l,h);
+   
+}
 
 void work_function(struct work_struct *work)
 {
@@ -141,25 +158,12 @@ void work_function(struct work_struct *work)
    //Lock acquired
    info->off = 0;
    (info->off) += the_object->valid_bytes_lo;
-   // Only low priority conditions possible here
-   // if offset too large
-   
-   // if offset beyond the current stream size
-   if (((info->off) > the_object->valid_bytes_lo))
-   {
-      free_page((unsigned long)info->buff);
-      kfree(info);
-      mutex_unlock(&(the_object->mutex_lo));
-      wake_up(&(the_object->low_prio_queue));
-      printk("%s: KWORKER DAEMON: ERROR - Out of stream resources\n", MODNAME);
-      return;
-   }
+   // Only low priority operations possible here
    
    len = info->len;
    buff = info->buff;
    off = info->off;
 
-  
    the_object->low_priority_flow = krealloc(the_object->low_priority_flow,(the_object->valid_bytes_lo)+len,GFP_KERNEL);
    memset(the_object->low_priority_flow + the_object->valid_bytes_lo,0,len);
    strncat(the_object->low_priority_flow,buff,len);
@@ -167,7 +171,7 @@ void work_function(struct work_struct *work)
    the_object->valid_bytes_lo = (info->off);
    low_bytes[minor] = the_object->valid_bytes_lo;
    printk("%s: KWORKER DAEMON: WRITE OPERATION COMPLETED - uncopied bytes = %d\n",MODNAME,ret);
-   printk("%s: KWORKER DAEMON: UPDATED FLOWS\nLOW_PRIORITY_FLOW: %s\nHIGH_PRIORITY_FLOW: %s\n", MODNAME, the_object->low_priority_flow, the_object->high_priority_flow);
+   print_streams(the_object->low_priority_flow,the_object->high_priority_flow,the_object->valid_bytes_lo,the_object->valid_bytes_hi);
    free_page((unsigned long)info->buff);
    kfree(info);
    mutex_unlock(&(the_object->mutex_lo));
@@ -252,7 +256,8 @@ static ssize_t dev_write(struct file *filp, const char *buff, size_t len, loff_t
          info->filp = filp;
          info->len = len;
          info->buff = (char *)__get_free_page(GFP_KERNEL);
-         ret = copy_from_user((info->buff), buff, len);
+         ret = copy_from_user((info->buff), buff, len); //This operation is performed on a just allocated struct istance
+         info->len -= ret;//if some bytes were not written 
          info->off = *off;
 
          __INIT_WORK(&(info->work), work_function, (unsigned long)(&(info->work)));
@@ -285,6 +290,7 @@ static ssize_t dev_write(struct file *filp, const char *buff, size_t len, loff_t
          info->len = len;
          info->buff = (char *)__get_free_page(GFP_KERNEL);
          ret = copy_from_user((info->buff), buff, len);
+         info->len -= ret;//if some bytes were not written
          info->off = *off;
 
          __INIT_WORK(&(info->work), work_function, (unsigned long)(&(info->work)));
@@ -294,38 +300,22 @@ static ssize_t dev_write(struct file *filp, const char *buff, size_t len, loff_t
    }
    
    *off = 0;
-   if (highPriority)
-   {
-      *off += the_object->valid_bytes_hi;
-   }
-   else
-   {
-      *off += the_object->valid_bytes_lo;
-   }
-
-   // Only high priority conditions possible here
+   *off += the_object->valid_bytes_hi;
    
-   // if offset beyond the current stream size
-   if ((*off > the_object->valid_bytes_hi))
-   {
-      mutex_unlock(&(the_object->mutex_hi));
-      wake_up(&(the_object->high_prio_queue));
-      printk("%s: ERROR - Out of stream resources\n", MODNAME);
-      return -ENOSR;
-   }
-
-
-   //Only high priority operations
+   // Only high priority operations possible here
+   
    the_object->high_priority_flow = krealloc(the_object->high_priority_flow,(the_object->valid_bytes_hi)+len,GFP_KERNEL);
    memset(the_object->high_priority_flow + the_object->valid_bytes_hi,0,len);
    ret = copy_from_user(&(the_object->high_priority_flow[*off]), buff, len);
+   if(ret!=0)
+      the_object->high_priority_flow = krealloc(the_object->high_priority_flow,(the_object->valid_bytes_hi)+len-ret,GFP_KERNEL);
    *off += (len - ret);
    the_object->valid_bytes_hi = *off;
    high_bytes[minor] = the_object->valid_bytes_hi;
 
 
    printk("%s: WRITE OPERATION COMPLETED - uncopied bytes = %d\n",MODNAME,ret);
-   printk("%s: UPDATED FLOWS\nLOW_PRIORITY_FLOW: %s\nHIGH_PRIORITY_FLOW: %s\n", MODNAME, the_object->low_priority_flow, the_object->high_priority_flow);
+   print_streams(the_object->low_priority_flow,the_object->high_priority_flow, the_object->valid_bytes_lo,the_object->valid_bytes_hi);
    mutex_unlock(&(the_object->mutex_hi));
    wake_up(&(the_object->high_prio_queue));
    return len - ret;
@@ -398,30 +388,13 @@ static ssize_t dev_read(struct file *filp, char *buff, size_t len, loff_t *off)
    //Lock acquired
 
    *off = 0;
-   // if offset beyond the current stream size
-   if ((!highPriority && *off > the_object->valid_bytes_lo))
-   {
-      mutex_unlock(&(the_object->mutex_lo));
-      wake_up(&(the_object->low_prio_queue));
-      printk("%s: ERROR - out of stream resources.\n",MODNAME);
-      return 0;
-   }
-   else if ((highPriority && *off > the_object->valid_bytes_hi))
-   {
-      mutex_unlock(&(the_object->mutex_hi));
-      wake_up(&(the_object->high_prio_queue));
-      printk("%s: ERROR - out of stream resources.\n",MODNAME);
-      return 0;
-   }
 
-   if ((!highPriority && the_object->valid_bytes_lo - *off < len))
-   {
-      len = the_object->valid_bytes_lo - *off;
-   }
-   else if ((highPriority && the_object->valid_bytes_hi - *off < len))
-   {
-      len = the_object->valid_bytes_hi - *off;
-   }
+   //If the read request size is bigger than valid bytes present
+   if ((!highPriority && the_object->valid_bytes_lo < len))
+      len = the_object->valid_bytes_lo;
+   else if ((highPriority && the_object->valid_bytes_hi < len))
+      len = the_object->valid_bytes_hi;
+   
 
    // In order to perform a read the sequence is: copy to user, move the remaining string to the beginning of the stream, clean the final part.
    if (highPriority)
@@ -436,7 +409,8 @@ static ssize_t dev_read(struct file *filp, char *buff, size_t len, loff_t *off)
       high_bytes[minor] = the_object->valid_bytes_hi; //update param
 
       printk("%s: READ OPERATION COMPLETED - unread bytes = %d\nDelivered bytes: %s\n",MODNAME,ret,buff);
-      printk("%s: UPDATED FLOWS\nLOW_PRIORITY_FLOW: %s\nHIGH_PRIORITY_FLOW: %s\n", MODNAME, the_object->low_priority_flow, the_object->high_priority_flow);
+      print_streams(the_object->low_priority_flow,the_object->high_priority_flow,the_object->valid_bytes_lo,the_object->valid_bytes_hi);
+      
       mutex_unlock(&(the_object->mutex_hi));
       wake_up(&(the_object->high_prio_queue));
    }
@@ -452,11 +426,11 @@ static ssize_t dev_read(struct file *filp, char *buff, size_t len, loff_t *off)
       low_bytes[minor] = the_object->valid_bytes_lo;
 
       printk("%s: READ OPERATION COMPLETED - unread bytes = %d\nDelivered bytes: %s\n",MODNAME,ret,buff);
-      printk("%s: UPDATED FLOWS\nLOW_PRIORITY_FLOW: %s\nHIGH_PRIORITY_FLOW: %s\n", MODNAME, the_object->low_priority_flow, the_object->high_priority_flow);
+      print_streams(the_object->low_priority_flow,the_object->high_priority_flow,the_object->valid_bytes_lo,the_object->valid_bytes_hi);   
+      
       mutex_unlock(&(the_object->mutex_lo));
       wake_up(&(the_object->low_prio_queue));
    }
-
    return delivered_bytes;
 }
 
@@ -534,8 +508,6 @@ int init_module(void)
       objects[i].low_priority_flow = kzalloc(0,GFP_ATOMIC);
       objects[i].high_priority_flow = NULL;
       objects[i].high_priority_flow = kzalloc(0,GFP_ATOMIC);
-      //if (objects[i].low_priority_flow == NULL || objects[i].high_priority_flow == NULL)
-      //   goto revert_allocation;
 
       low_bytes[i] = objects[i].valid_bytes_lo;
       high_bytes[i] = objects[i].valid_bytes_hi;
@@ -553,15 +525,6 @@ int init_module(void)
    }
    printk("%s: DEVICE REGISTERED - Assigned MAJOR = %d\n", MODNAME, Major);
    return 0;
-
-/*revert_allocation:
-   for (; i >= 0; i--)
-   {
-      free_page((unsigned long)objects[i].low_priority_flow);
-      free_page((unsigned long)objects[i].high_priority_flow);
-   }
-   printk("%s: ERROR - Requested memory is not available\n", MODNAME);
-   return -ENOMEM;*/
 }
 
 void cleanup_module(void)
@@ -569,8 +532,6 @@ void cleanup_module(void)
    int i;
    for (i = 0; i < MINORS; i++)
    {
-      //free_page((unsigned long)objects[i].low_priority_flow);
-      //free_page((unsigned long)objects[i].high_priority_flow);
       kfree(objects[i].low_priority_flow);
       kfree(objects[i].high_priority_flow);
    }

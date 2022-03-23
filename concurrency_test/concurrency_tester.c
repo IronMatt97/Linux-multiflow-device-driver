@@ -1,3 +1,11 @@
+/*
+* @file concurrencny_tester.c 
+* @brief A test utility to stress the concurrency management aspects of the kernel module
+*
+* @author Matteo Ferretti
+*
+* @date March 1, 2022
+*/
 #include <unistd.h>
 #include <fcntl.h>
 #include <stdio.h>
@@ -19,6 +27,7 @@ char buff[50];
 #define HIGH_PRIORITY_DATA "HI_DATA"
 #define HIGH_PRIORITY_DATA_LENGTH strlen(HIGH_PRIORITY_DATA)
 #define BYTES_TO_READ 2
+#define INTER_TEST_TIME 300 * 1000	//*1000 is necessary to reach millisecond grain
 
 char r1[BYTES_TO_READ];
 char r2[BYTES_TO_READ];
@@ -200,7 +209,7 @@ int main(int argc, char** argv)
 		pthread_join(tid3,NULL);
 		pthread_join(tid4,NULL);	
 		
-		sleep(1);
+		usleep(INTER_TEST_TIME);
 
 		pthread_create(&tid1, NULL, high_priority_thread_w_b, strdup(minors_list[i]));
 		pthread_create(&tid2, NULL, high_priority_thread_w_nb, strdup(minors_list[i]));
@@ -211,7 +220,7 @@ int main(int argc, char** argv)
 		pthread_join(tid3,NULL);
 		pthread_join(tid4,NULL);
 
-		sleep(1);
+		usleep(INTER_TEST_TIME);
 		printf("\t\tdone.\n");
 
 		printf("\n\tTest 2 - concurrent reads...\n");
@@ -224,7 +233,7 @@ int main(int argc, char** argv)
 		pthread_join(tid3,NULL);
 		pthread_join(tid4,NULL);
 
-		sleep(1);
+		usleep(INTER_TEST_TIME);
 
 		pthread_create(&tid1, NULL, high_priority_thread_r_b, strdup(minors_list[i]));
 		pthread_create(&tid2, NULL, high_priority_thread_r_nb, strdup(minors_list[i]));
@@ -235,7 +244,7 @@ int main(int argc, char** argv)
 		pthread_join(tid3,NULL);
 		pthread_join(tid4,NULL);
 
-		sleep(1);
+		usleep(INTER_TEST_TIME);
 		printf("\t\tdone.\n");
 
 		printf("\n\tTest 3 - concurrent writes and reads...\n");
@@ -248,7 +257,7 @@ int main(int argc, char** argv)
 		pthread_join(tid3,NULL);
 		pthread_join(tid4,NULL);
 
-		sleep(1);
+		usleep(INTER_TEST_TIME);
 
 		pthread_create(&tid1, NULL, high_priority_thread_w_b, strdup(minors_list[i]));
 		pthread_create(&tid2, NULL, high_priority_thread_w_nb, strdup(minors_list[i]));
@@ -259,7 +268,7 @@ int main(int argc, char** argv)
 		pthread_join(tid3,NULL);
 		pthread_join(tid4,NULL);
 
-		sleep(1);
+		usleep(INTER_TEST_TIME);
 		printf("\t\tdone.\n");
 	}
 

@@ -1,8 +1,11 @@
-//TODO CAMBIA LA STRUTTURA DELLE RICHIESTE, METTI UN PROMPT ULTERIORE CHE TI FA SCEGLIERE VERSO QUALE DEV APRIRE SESSIONE
-//E FINCHE NON TI STUFI NON LA CHIUDI.
-//Inoltre rifai partire i test, ma fallo stavolta per multipli device
-//Pulisci il sorgente principale multi-flow-device.c
-//pulisci la cartella da tutti i file inutili da github
+/*
+* @file function_tester.c 
+* @brief An utility program to test the kernel module's basic functions
+*
+* @author Matteo Ferretti
+*
+* @date March 1, 2022
+*/
 #include <unistd.h>
 #include <fcntl.h>
 #include <stdio.h>
@@ -21,12 +24,6 @@ char buff[4096];
 #define SIZE strlen(DATA)
 #define BYTES_TO_READ 3
 
-void default_prompt(void)
-{
-    printf("--------------------\n");
-    printf("Welcome %s. This is a testing program.\n",getlogin());
-    return;
-}
 char *choose_device()
 {
     int minor;
@@ -37,8 +34,7 @@ char *choose_device()
         printf("\n\tInvalid minor chosen. Closing the program...\n");
         exit(-1);
     }
-    char* device = minors_list[minor];
-    return device;
+    return minors_list[minor];
 }
 int choose_action()
 {
@@ -47,9 +43,10 @@ int choose_action()
     printf("1) Write on a device flow\n");
     printf("2) Read from a device flow\n");
     printf("3) Send an IOCTL to a device\n");
+    printf("4) Close the session\n");
     printf("\n\tChosen action: ");
     scanf("%d", &action);
-    if (action < 0 || action > 3)
+    if (action < 0 || action > 4)
         return -1;
 
     return action;
@@ -75,7 +72,7 @@ void do_ioctl(int fd)
     printf("1 - set high priority mode for RW operations for the device\n");
     printf("2 - set the execution to non-blocking mode\n");
     printf("3 - set the execution to blocking mode\n");
-    printf("4 - set the blocking operations timeout for the device (nanoseconds)\n");
+    printf("4 - set the blocking operations timeout for the device (microseconds)\n");
     printf("5 - enable/disable the device\n");
     scanf("%d", &action);
     switch (action)
@@ -107,6 +104,37 @@ void do_ioctl(int fd)
     printf("\t\t\tTHREAD IOCTL COMPLETE.\n");
     return;
 }
+
+void control_device(char *device)
+{
+    int fd = open(device, O_RDWR);
+    if(fd == -1)
+    {
+        printf("OPEN ERROR - There was an error opening the device.\n");
+        return;
+    }
+    REPEAT
+    {
+        action = choose_action();
+        switch (action)
+        {
+            case 1:
+                do_write(fd);
+                break;
+            case 2:
+                do_read(fd);
+                break;
+            case 3:
+                do_ioctl(fd);
+                break;
+            case 4:
+                close(fd);
+                return;
+            default:
+                printf("\n\tWrong input, restarting...\n");
+        }
+    }
+}
 int main(int argc, char **argv)
 {
     int major = strtol(argv[2], NULL, 10);
@@ -119,7 +147,7 @@ int main(int argc, char **argv)
         printf("ERROR - WRONG PARAMETERS: usage -> prog pathname major minors\n");
         return -1;
     }
-    printf("\n----------Multi-flow device driver tester initialization started correctly.\n\n");
+    printf("\n---------Multi-flow device driver tester initialization started correctly.\n\n");
     printf("\t...Creating %d minors for device %s (major %d)\n", minors, path, major);
     for (i = 0; i < minors; i++)
     {
@@ -136,44 +164,32 @@ int main(int argc, char **argv)
     }
     printf("\n\nHow to use: select an action to perform in the next prompt.\n");
 
-    int last_ioctl = 0;
-    int fd;
+    char *device;
+
     // User routine
     REPEAT
     {
-        default_prompt();
-        char* device = choose_device();
-        action = choose_action();
-        if(!last_ioctl)
-        {
-            fd = open(device, O_RDWR);
-            if(fd == -1)
-            {
-                printf("OPEN ERROR - There was an error opening the device.\n");
-                return fd;
-            }
-        }
+        printf("--------------------------------------------------------------\n");
+        printf("Welcome %s. This is a testing program.\n",getlogin());
+        printf("Choose an action:\n");
+        printf("1) Open a session to a device\n");
+        printf("2) Leave\n");
+        printf("\n\n\tChosen action: ");
+        scanf("%d",&action);
         switch (action)
         {
             case 1:
-                do_write(fd);
-                last_ioctl = 0;
+                device = choose_device();
+                control_device(device);
                 break;
             case 2:
-                do_read(fd);
-                last_ioctl = 0;
-                break;
-            case 3:
-                do_ioctl(fd);
-                last_ioctl = 1;
-                break;
+                exit(0);
             default:
                 printf("\n\tWrong input, restarting...\n");
         }
-        if(!last_ioctl)
-            close(fd);
     }
     return 0;
 }
+
 
 
