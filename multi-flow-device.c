@@ -38,6 +38,8 @@ MODULE_DESCRIPTION("A basic device driver implementing multi-flow devices realiz
 #define DEFAULT_PRIORITY_MODE 0  //Default priority mode for a device (0 = low priority usage - 1 = high priority usage)
 
 #define EMPTY_BUFF "[empty]"
+#define ALLOCATION_FAILED(x) (x==NULL)
+#define NOT(x) (x==0)
 
 typedef struct _object_state  // This struct represents a single device
 {
@@ -107,75 +109,63 @@ void print_streams(char *low_stream,char *high_stream,int low_bytes, int high_by
       h=high_stream;
 
    printk("%s: UPDATED FLOWS\nLOW_PRIORITY_FLOW: %s\nHIGH_PRIORITY_FLOW: %s\n", MODNAME,l,h);
-   
 }
 
 void work_function(struct work_struct *work)
 {
    // Implementation of deferred work
    int minor;
-   int ret;
-   int lock_taken;
-   int len;
-   char * buff;
-   long long int off;
    packed_work *info;
    object_state *the_object;
    session *s;
+
+   printk("%s: KWORKER DAEMON RUNNING - PID = %d - CPU-core = %d\n",MODNAME,current->pid,smp_processor_id());
 
    info = container_of(work, packed_work, work);
    minor = get_minor(info->filp);
    the_object = objects + minor;
    s = (info->filp)->private_data;
 
-   printk("%s: KWORKER DAEMON RUNNING - PID = %d - CPU-core = %d\n",MODNAME,current->pid,smp_processor_id());
-   
-   //Lock acquirement phase
-   if (s->blockingModeOn)
-   {
-      __atomic_fetch_add(&low_waiting[minor], 1, __ATOMIC_SEQ_CST);
-      lock_taken = wait_event_timeout(the_object->low_prio_queue, mutex_trylock(&(the_object->mutex_lo)), s->awake_timeout);
-      __atomic_fetch_sub(&low_waiting[minor], 1, __ATOMIC_SEQ_CST);
-      if (lock_taken == 0)
-      {
-         printk("%s: KWORKER DAEMON: REQUEST TIMEOUT - the requested write ('%s') on minor %d will not be performed.\n", MODNAME, info->buff,minor);
-         free_page((unsigned long)info->buff);
-         kfree(info);
-         return;
-      }
-   }
-   else
-   {
-      lock_taken = mutex_trylock(&(the_object->mutex_lo));
-      if (lock_taken == 0)
-      {
-         printk("%s: KWORKER DAEMON: RESOURCE BUSY - the requested write ('%s') on minor %d will not be performed.\n", MODNAME, info->buff,minor);
-         free_page((unsigned long)info->buff);
-         kfree(info);
-         return;
-      }
-   }
-   //Lock acquired
-   info->off = 0;
-   (info->off) += the_object->valid_bytes_lo;
-   // Only low priority operations possible here
-   
-   len = info->len;
-   buff = info->buff;
-   off = info->off;
+   mutex_lock(&(the_object->mutex_lo));
 
-   the_object->low_priority_flow = krealloc(the_object->low_priority_flow,(the_object->valid_bytes_lo)+len,GFP_KERNEL);
-   memset(the_object->low_priority_flow + the_object->valid_bytes_lo,0,len);
-   strncat(the_object->low_priority_flow,buff,len);
-   info->off +=len;
+   info->off = the_object->valid_bytes_lo;
+   
+   // Only low priority operations possible here
+   the_object->low_priority_flow = krealloc(the_object->low_priority_flow,(the_object->valid_bytes_lo)+info->len,GFP_KERNEL);
+   memset(the_object->low_priority_flow + the_object->valid_bytes_lo,0,info->len);
+   strncat(the_object->low_priority_flow,info->buff,info->len);
+   printk("HO ATTACCATO %s a %s (len=%ld)\n",the_object->low_priority_flow,info->buff,info->len);
+   info->off += info->len;
    the_object->valid_bytes_lo = (info->off);
    low_bytes[minor] = the_object->valid_bytes_lo;
-   printk("%s: KWORKER DAEMON: WRITE OPERATION COMPLETED - uncopied bytes = %d\n",MODNAME,ret);
    print_streams(the_object->low_priority_flow,the_object->high_priority_flow,the_object->valid_bytes_lo,the_object->valid_bytes_hi);
    free_page((unsigned long)info->buff);
    kfree(info);
    mutex_unlock(&(the_object->mutex_lo));
    wake_up(&(the_object->low_prio_queue));
+
+   printk("%s: KWORKER DAEMON: WRITE OPERATION COMPLETED\n",MODNAME);
+   return;
+}
+
+void prepare_deferred_work(struct file *filp, size_t len, char* temp_buff, int ret)
+{
+   packed_work *info = kzalloc(sizeof(packed_work), GFP_ATOMIC);
+   if (ALLOCATION_FAILED(info))
+   {
+      printk("%s: ERROR - deferred work structure allocation failed.\n", MODNAME);
+      kfree(temp_buff);
+      return;
+   }
+   info->filp = filp;
+   info->len = len;
+   info->buff = (char *)__get_free_page(GFP_KERNEL);
+   strncpy(info->buff,temp_buff,info->len);
+   printk("Dopo la strcpy risultano %s e %s (len %ld)\n",info->buff,temp_buff,info->len);
+   info->len -= ret;//if some bytes were not written
+
+   __INIT_WORK(&(info->work), work_function, (unsigned long)(&(info->work)));
+   schedule_work(&(info->work));
    return;
 }
 
@@ -220,104 +210,74 @@ static ssize_t dev_write(struct file *filp, const char *buff, size_t len, loff_t
    // Synchronous for high and asynchronous (deferred work) for low priority
    // Blocking mode = waits for lock to go on, Non-blocking mode = doesn't wait for lock if busy and returns
    int ret;
+   int written_bytes;
    int lock_taken;
    int minor = get_minor(filp);
    object_state *the_object = objects + minor;
    session *s = filp->private_data;
    int highPriority = s->priorityMode;
-
+   int blocking = s->blockingModeOn;
+   
+   char *temp_buff = kzalloc(sizeof(char)*len, GFP_ATOMIC);//Prepare a buffer to write
+   if (ALLOCATION_FAILED(temp_buff))
+   {
+      printk("%s: ERROR - temporary structure allocation failed.\n", MODNAME);
+      return 0;   //No bytes have been copied yet
+   }
+   ret = copy_from_user(temp_buff, buff, len);  //Write in a temporary buffer to avoid blocked kernel threads
+   written_bytes = len-ret;
+   printk("Dopo la copy from user il temp buff è %s\n",temp_buff);
    printk("%s: WRITE CALLED ON [MAJ-%d,MIN-%d]\n", MODNAME, get_major(filp), get_minor(filp));
    printk("%s: \nPriority mode = %d\nBlocking mode = %d\nValid bytes (low priority stream) = %d\nValid bytes (high priority stream) = %d\n", MODNAME, highPriority, s->blockingModeOn, the_object->valid_bytes_lo, the_object->valid_bytes_hi);
 
    // Lock acquisition phase
-   // Blocking mode
-   if (s->blockingModeOn)
+   
+   //Low priority
+   if(NOT(highPriority))   
    {
-      if (highPriority)
-      {
-         __atomic_fetch_add(&high_waiting[minor], 1, __ATOMIC_SEQ_CST);
-         lock_taken = wait_event_timeout(the_object->high_prio_queue, mutex_trylock(&(the_object->mutex_hi)), s->awake_timeout);
-         __atomic_fetch_sub(&high_waiting[minor], 1, __ATOMIC_SEQ_CST);
-         if (lock_taken == 0)
-         {
-            printk("%s: REQUEST TIMEOUT - the requested write ('%s') on minor %d will not be performed.\n", MODNAME, buff, minor);
-            return -1;
-         }
-      }
-      else
-      {
-         // Deferred work
-         packed_work *info = kzalloc(sizeof(packed_work), GFP_ATOMIC);
-         if (info == NULL)
-         {
-            printk("%s: ERROR - deferred work structure allocation failed.\n", MODNAME);
-            return -1;
-         }
-         info->filp = filp;
-         info->len = len;
-         info->buff = (char *)__get_free_page(GFP_KERNEL);
-         ret = copy_from_user((info->buff), buff, len); //This operation is performed on a just allocated struct istance
-         info->len -= ret;//if some bytes were not written 
-         info->off = *off;
+      // Deferred work
+      prepare_deferred_work(filp, len, temp_buff, ret);
+      return written_bytes;   //Deferred work should not fail
+   }
 
-         __INIT_WORK(&(info->work), work_function, (unsigned long)(&(info->work)));
-         schedule_work(&(info->work));
-         return 0;
-      }
-
-   } // Non-blocking mode
-   else
+   //High priority
+   if (blocking)  //Blocking mode
    {
-      if (highPriority)
+      __atomic_fetch_add(&high_waiting[minor], 1, __ATOMIC_SEQ_CST);
+      lock_taken = wait_event_timeout(the_object->high_prio_queue, mutex_trylock(&(the_object->mutex_hi)), s->awake_timeout);
+      __atomic_fetch_sub(&high_waiting[minor], 1, __ATOMIC_SEQ_CST);
+      if (NOT(lock_taken))
       {
-         lock_taken = mutex_trylock(&(the_object->mutex_hi));
-         if (lock_taken == 0)
-         {
-            printk("%s: RESOURCE BUSY - the requested write ('%s') on minor %d will not be performed.\n", MODNAME, buff, minor);
-            return -1;
-         }
+         printk("%s: REQUEST TIMEOUT - the requested write ('%s') on minor %d will not be performed.\n", MODNAME, buff, minor);
+         kfree(temp_buff);
+         return written_bytes;
       }
-      else
+   }
+   else  // Non-blocking mode
+   {
+      lock_taken = mutex_trylock(&(the_object->mutex_hi));
+      if (NOT(lock_taken))
       {
-         // Deferred work
-         packed_work *info = kzalloc(sizeof(packed_work), GFP_ATOMIC);
-         if (info == NULL)
-         {
-            printk("%s: ERROR - deferred work structure allocation failed.\n", MODNAME);
-            return -1;
-         }
-         info->filp = filp;
-         info->len = len;
-         info->buff = (char *)__get_free_page(GFP_KERNEL);
-         ret = copy_from_user((info->buff), buff, len);
-         info->len -= ret;//if some bytes were not written
-         info->off = *off;
-
-         __INIT_WORK(&(info->work), work_function, (unsigned long)(&(info->work)));
-         schedule_work(&(info->work));
-         return 0;
+         printk("%s: RESOURCE BUSY - the requested write ('%s') on minor %d will not be performed.\n", MODNAME, buff, minor);
+         kfree(temp_buff);
+         return written_bytes;
       }
    }
    
-   *off = 0;
-   *off += the_object->valid_bytes_hi;
-   
    // Only high priority operations possible here
-   
-   the_object->high_priority_flow = krealloc(the_object->high_priority_flow,(the_object->valid_bytes_hi)+len,GFP_KERNEL);
-   memset(the_object->high_priority_flow + the_object->valid_bytes_hi,0,len);
-   ret = copy_from_user(&(the_object->high_priority_flow[*off]), buff, len);
-   if(ret!=0)
-      the_object->high_priority_flow = krealloc(the_object->high_priority_flow,(the_object->valid_bytes_hi)+len-ret,GFP_KERNEL);
-   *off += (len - ret);
+   *off = the_object->valid_bytes_hi;
+   the_object->high_priority_flow = krealloc(the_object->high_priority_flow,(the_object->valid_bytes_hi)+written_bytes,GFP_KERNEL);
+   memset(the_object->high_priority_flow + the_object->valid_bytes_hi,0,written_bytes);
+   strncat(the_object->low_priority_flow,temp_buff,written_bytes);
+   *off += (written_bytes);
    the_object->valid_bytes_hi = *off;
    high_bytes[minor] = the_object->valid_bytes_hi;
 
-
-   printk("%s: WRITE OPERATION COMPLETED - uncopied bytes = %d\n",MODNAME,ret);
-   print_streams(the_object->low_priority_flow,the_object->high_priority_flow, the_object->valid_bytes_lo,the_object->valid_bytes_hi);
    mutex_unlock(&(the_object->mutex_hi));
    wake_up(&(the_object->high_prio_queue));
+
+   printk("%s: WRITE OPERATION COMPLETED\n",MODNAME);
+   print_streams(the_object->low_priority_flow,the_object->high_priority_flow, the_object->valid_bytes_lo,the_object->valid_bytes_hi);
    return len - ret;
 }
 
