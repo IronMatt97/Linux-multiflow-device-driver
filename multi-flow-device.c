@@ -108,7 +108,7 @@ void print_streams(char *low_stream,char *high_stream,int low_bytes, int high_by
    else
       h=high_stream;
 
-   printk("%s: UPDATED FLOWS\nLOW_PRIORITY_FLOW: %s\nHIGH_PRIORITY_FLOW: %s\n", MODNAME,l,h);
+   printk("%s: WRITE OPERATION COMPLETED\nUPDATED FLOWS\nLOW_PRIORITY_FLOW: %s\nHIGH_PRIORITY_FLOW: %s\n", MODNAME,l,h);
 }
 
 void work_function(struct work_struct *work)
@@ -127,24 +127,21 @@ void work_function(struct work_struct *work)
    s = (info->filp)->private_data;
 
    mutex_lock(&(the_object->mutex_lo));
-
-   info->off = the_object->valid_bytes_lo;
    
    // Only low priority operations possible here
+   info->off = the_object->valid_bytes_lo;
    the_object->low_priority_flow = krealloc(the_object->low_priority_flow,(the_object->valid_bytes_lo)+info->len,GFP_KERNEL);
    memset(the_object->low_priority_flow + the_object->valid_bytes_lo,0,info->len);
    strncat(the_object->low_priority_flow,info->buff,info->len);
-   printk("HO ATTACCATO %s a %s (len=%ld)\n",the_object->low_priority_flow,info->buff,info->len);
    info->off += info->len;
    the_object->valid_bytes_lo = (info->off);
    low_bytes[minor] = the_object->valid_bytes_lo;
-   print_streams(the_object->low_priority_flow,the_object->high_priority_flow,the_object->valid_bytes_lo,the_object->valid_bytes_hi);
    free_page((unsigned long)info->buff);
    kfree(info);
+   print_streams(the_object->low_priority_flow,the_object->high_priority_flow,the_object->valid_bytes_lo,the_object->valid_bytes_hi);
    mutex_unlock(&(the_object->mutex_lo));
    wake_up(&(the_object->low_prio_queue));
 
-   printk("%s: KWORKER DAEMON: WRITE OPERATION COMPLETED\n",MODNAME);
    return;
 }
 
@@ -161,8 +158,8 @@ void prepare_deferred_work(struct file *filp, size_t len, char* temp_buff, int r
    info->len = len;
    info->buff = (char *)__get_free_page(GFP_KERNEL);
    strncpy(info->buff,temp_buff,info->len);
-   printk("Dopo la strcpy risultano %s e %s (len %ld)\n",info->buff,temp_buff,info->len);
    info->len -= ret;//if some bytes were not written
+   kfree(temp_buff);
 
    __INIT_WORK(&(info->work), work_function, (unsigned long)(&(info->work)));
    schedule_work(&(info->work));
@@ -226,7 +223,6 @@ static ssize_t dev_write(struct file *filp, const char *buff, size_t len, loff_t
    }
    ret = copy_from_user(temp_buff, buff, len);  //Write in a temporary buffer to avoid blocked kernel threads
    written_bytes = len-ret;
-   printk("Dopo la copy from user il temp buff è %s\n",temp_buff);
    printk("%s: WRITE CALLED ON [MAJ-%d,MIN-%d]\n", MODNAME, get_major(filp), get_minor(filp));
    printk("%s: \nPriority mode = %d\nBlocking mode = %d\nValid bytes (low priority stream) = %d\nValid bytes (high priority stream) = %d\n", MODNAME, highPriority, s->blockingModeOn, the_object->valid_bytes_lo, the_object->valid_bytes_hi);
 
@@ -263,22 +259,22 @@ static ssize_t dev_write(struct file *filp, const char *buff, size_t len, loff_t
          return written_bytes;
       }
    }
-   
+
    // Only high priority operations possible here
    *off = the_object->valid_bytes_hi;
    the_object->high_priority_flow = krealloc(the_object->high_priority_flow,(the_object->valid_bytes_hi)+written_bytes,GFP_KERNEL);
    memset(the_object->high_priority_flow + the_object->valid_bytes_hi,0,written_bytes);
-   strncat(the_object->low_priority_flow,temp_buff,written_bytes);
-   *off += (written_bytes);
+   strncat(the_object->high_priority_flow,temp_buff,written_bytes);
+   kfree(temp_buff);
+   *off += written_bytes;
    the_object->valid_bytes_hi = *off;
    high_bytes[minor] = the_object->valid_bytes_hi;
+   print_streams(the_object->low_priority_flow,the_object->high_priority_flow, the_object->valid_bytes_lo,the_object->valid_bytes_hi);
 
    mutex_unlock(&(the_object->mutex_hi));
    wake_up(&(the_object->high_prio_queue));
 
-   printk("%s: WRITE OPERATION COMPLETED\n",MODNAME);
-   print_streams(the_object->low_priority_flow,the_object->high_priority_flow, the_object->valid_bytes_lo,the_object->valid_bytes_hi);
-   return len - ret;
+   return written_bytes;
 }
 
 static ssize_t dev_read(struct file *filp, char *buff, size_t len, loff_t *off)
