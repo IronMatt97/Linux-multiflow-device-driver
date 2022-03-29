@@ -215,7 +215,7 @@ static ssize_t dev_write(struct file *filp, const char *buff, size_t len, loff_t
    int highPriority = s->priorityMode;
    int blocking = s->blockingModeOn;
    
-   char *temp_buff = kzalloc(sizeof(char)*len, GFP_ATOMIC);//Prepare a buffer to write
+   char *temp_buff = kzalloc(sizeof(char)*len, GFP_ATOMIC);//Prepare a buffer to use to avoid sleeping in mutex
    if (ALLOCATION_FAILED(temp_buff))
    {
       printk("%s: ERROR - temporary structure allocation failed.\n", MODNAME);
@@ -246,7 +246,7 @@ static ssize_t dev_write(struct file *filp, const char *buff, size_t len, loff_t
       {
          printk("%s: REQUEST TIMEOUT - the requested write ('%s') on minor %d will not be performed.\n", MODNAME, buff, minor);
          kfree(temp_buff);
-         return written_bytes;
+         return 0;
       }
    }
    else  // Non-blocking mode
@@ -256,7 +256,7 @@ static ssize_t dev_write(struct file *filp, const char *buff, size_t len, loff_t
       {
          printk("%s: RESOURCE BUSY - the requested write ('%s') on minor %d will not be performed.\n", MODNAME, buff, minor);
          kfree(temp_buff);
-         return written_bytes;
+         return 0;
       }
    }
 
@@ -288,62 +288,54 @@ static ssize_t dev_read(struct file *filp, char *buff, size_t len, loff_t *off)
    object_state *the_object = objects + minor;
    session *s = filp->private_data;
    int highPriority = s->priorityMode;
-
+   int blocking = s->blockingModeOn;
+   
    printk("%s: READ CALLED ON [MAJ-%d,MIN-%d]\n", MODNAME, get_major(filp), get_minor(filp));
    printk("%s: \nPriority mode = %d\nBlocking mode = %d\nValid bytes (low priority stream) = %d\nValid bytes (high priority stream) = %d\n", MODNAME, highPriority, s->blockingModeOn, the_object->valid_bytes_lo, the_object->valid_bytes_hi);
 
+
+   
+   int *selected_waiting_array;
+   wait_queue_head_t selected_priority_queue;
+   struct mutex *selected_mutex;
+   //TODO - AGGIUNGERE LE ALTRE INFO (flow e valid bytes, cosi sotto puoi fare 1 caso solo per la lettura)
+   if(NOT(highPriority))
+   {
+      selected_waiting_array=low_waiting;
+      selected_priority_queue=the_object->low_prio_queue;
+      selected_mutex=&the_object->mutex_lo;
+   }
+   else
+   {
+      selected_waiting_array=high_waiting;
+      selected_priority_queue=the_object->high_prio_queue;
+      selected_mutex=&the_object->mutex_hi;
+   }
+
    // Lock acquisition phase
    // Blocking mode
-   if (s->blockingModeOn)
+   if (blocking)
    {
-      if (highPriority)
+      __atomic_fetch_add(&selected_waiting_array[minor], 1, __ATOMIC_SEQ_CST);
+      lock_taken = wait_event_timeout(selected_priority_queue, mutex_trylock((selected_mutex)), s->awake_timeout);
+      __atomic_fetch_sub(&selected_waiting_array[minor], 1, __ATOMIC_SEQ_CST);
+      if (NOT(lock_taken))
       {
-         __atomic_fetch_add(&high_waiting[minor], 1, __ATOMIC_SEQ_CST);
-         lock_taken = wait_event_timeout(the_object->high_prio_queue, mutex_trylock(&(the_object->mutex_hi)), s->awake_timeout);
-         __atomic_fetch_sub(&high_waiting[minor], 1, __ATOMIC_SEQ_CST);
-         if (lock_taken == 0)
-         {
-            printk("%s: REQUEST TIMEOUT - the requested read (%ld bytes) on minor %d will not be performed.\n", MODNAME, len, minor);
-            return -1;
-         }
+         printk("%s: REQUEST TIMEOUT - the requested read (%ld bytes) on minor %d will not be performed.\n", MODNAME, len, minor);
+         return 0;
       }
-      else
-      {
-         __atomic_fetch_add(&low_waiting[minor], 1, __ATOMIC_SEQ_CST);
-         lock_taken = wait_event_timeout(the_object->low_prio_queue, mutex_trylock(&(the_object->mutex_lo)), s->awake_timeout);
-         __atomic_fetch_sub(&low_waiting[minor], 1, __ATOMIC_SEQ_CST);
-         if (lock_taken == 0)
-         {
-            printk("%s: REQUEST TIMEOUT - the requested read (%ld bytes) on minor %d will not be performed.\n", MODNAME, len, minor);
-            return -1;
-         }
-      }
-
+      
    } // Non-blocking mode
    else
    {
-      if (highPriority)
-      {
-         lock_taken = mutex_trylock(&(the_object->mutex_hi));
-         if (lock_taken == 0)
+         lock_taken = mutex_trylock((selected_mutex));
+         if (NOT(lock_taken))
          {
             printk("%s: RESOURCE BUSY - the requested read (%ld bytes) on minor %d will not be performed.\n", MODNAME, len, minor);
-            return -1;
+            return 0;
          }
-      }
-      else
-      {
-         lock_taken = mutex_trylock(&(the_object->mutex_lo));
-         if (lock_taken == 0)
-         {
-            printk("%s: RESOURCE BUSY - the requested read (%ld bytes) on minor %d will not be performed.\n", MODNAME, len, minor);
-            return -1;
-         }
-      }
    }
    //Lock acquired
-
-   *off = 0;
 
    //If the read request size is bigger than valid bytes present
    if ((!highPriority && the_object->valid_bytes_lo < len))
@@ -355,7 +347,7 @@ static ssize_t dev_read(struct file *filp, char *buff, size_t len, loff_t *off)
    // In order to perform a read the sequence is: copy to user, move the remaining string to the beginning of the stream, clean the final part.
    if (highPriority)
    {
-      ret = copy_to_user(buff, &(the_object->high_priority_flow[*off]), len);
+      ret = copy_to_user(buff, &(the_object->high_priority_flow[0]), len);
       delivered_bytes = len-ret;
       memmove(the_object->high_priority_flow, (the_object->high_priority_flow) + (delivered_bytes),(the_object->valid_bytes_hi) - (delivered_bytes));
       memset(the_object->high_priority_flow + the_object->valid_bytes_hi - delivered_bytes,0,delivered_bytes);
@@ -372,7 +364,7 @@ static ssize_t dev_read(struct file *filp, char *buff, size_t len, loff_t *off)
    }
    else
    {
-      ret = copy_to_user(buff, &(the_object->low_priority_flow[*off]), len);
+      ret = copy_to_user(buff, &(the_object->low_priority_flow[0]), len);
       delivered_bytes = len-ret;
       memmove(the_object->low_priority_flow, (the_object->low_priority_flow) + (delivered_bytes),(the_object->valid_bytes_lo) - (delivered_bytes));
       memset(the_object->low_priority_flow + the_object->valid_bytes_lo - delivered_bytes,0,delivered_bytes);
