@@ -7,7 +7,12 @@
 *
 * @date March 1, 2022
 */
-
+///////////////TODO
+//HO SCOPERTO CHE IL CHAR* VA PASSATO COL DOPPIO **, ricontrolla tutte le funzioni a cui passi stringhe con puntatori singoli.
+//Buff_tmp è un inizio di quelli da provar ea cambiare. Intanto cosi runna. Ovviamente, perche tmpbuff lo usi e lobutti. Ma
+//non lo deallochi davvero quindi.
+//TUTTI GLI ARRAY RICHIEDONO **!!!!
+//Se l'indirizzo di un intero è *, l'indirizzo di un array, di char o int è **!!!RICONTROLLA ANCHE I PARAM!
 #define EXPORT_SYMTAB
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -29,6 +34,8 @@ MODULE_DESCRIPTION("A basic device driver implementing multi-flow devices realiz
 
 #define MODNAME "MULTI-FLOW-DEVICE"
 #define DEVICE_NAME "mfdev"
+#define LOW_PRIORITY "LOW"
+#define HIGH_PRIORITY "HIGH"
 
 #define get_major(session) MAJOR(session->f_inode->i_rdev)  //MAJOR number
 #define get_minor(session) MINOR(session->f_inode->i_rdev)  //MINOR number
@@ -41,7 +48,7 @@ MODULE_DESCRIPTION("A basic device driver implementing multi-flow devices realiz
 #define ALLOCATION_FAILED(x) (x==NULL)
 #define NOT(x) (x==0)
 #define ASSIGN_ADDRESS(data,data_low,data_high,prio) if(NOT(prio)){data=&data_low;}else{data=&data_high;}
-#define ASSIGN_VALUE(data,data_low,data_high,prio) if(NOT(prio)){data=data_low;}else{data=data_high;}
+#define SELECT_EQUAL(data,data_low,data_high,prio) if(NOT(prio)){data=data_low;}else{data=data_high;}
 
 typedef struct _object_state  // This struct represents a single device
 {
@@ -97,20 +104,29 @@ MODULE_PARM_DESC(low_bytes, "Array reporting the number of current valid bytes i
 MODULE_PARM_DESC(high_waiting, "Array describing the number of threads waiting on the high priority stream of every device.");
 MODULE_PARM_DESC(low_waiting, "Array describing the number of threads waiting on the low priority stream of every device.");
 
-void print_streams(char *low_stream,char *high_stream,int low_bytes, int high_bytes)
+void print_stream(char *stream,int bytes,char *flowType)
 {
-   char * l;
-   char * h;
-   if(low_bytes == 0)
-      l=EMPTY_BUFF;
+   char * s;
+   if(bytes == 0)
+      s=EMPTY_BUFF;
    else
-      l=low_stream;
-   if(high_bytes == 0)
-      h=EMPTY_BUFF;
-   else
-      h=high_stream;
+      s=stream;
 
-   printk("%s: WRITE OPERATION COMPLETED\nUPDATED FLOWS\nLOW_PRIORITY_FLOW: %s\nHIGH_PRIORITY_FLOW: %s\n", MODNAME,l,h);
+   printk("%s: WRITE OPERATION COMPLETED\nUPDATED FLOW\n%s_PRIORITY_FLOW: %s\nVALID_BYTES: %d\n", MODNAME,flowType,stream,bytes);
+}
+
+void do_write(ssize_t len, const char *buff, int *valid_bytes, char** flow, int minor, char *prioMode)
+{
+   printk("Entrato nella write,risultano\nlen:%ld\nbuff:%s\nvalidBytes:%d\nflow:%s\nminor:%d\nprioMode:%s\n",len,buff,*valid_bytes,*flow,minor,prioMode);
+   printk("La stringa prima della krealloc ha lunghezza %ld\n",sizeof(*flow));
+   *flow = krealloc(*flow,*valid_bytes+len,GFP_KERNEL);
+   memset(*flow + *valid_bytes,0,len);
+   strncat(*flow,buff,len);
+   printk("La stringa dopo la krealloc ha lunghezza %ld\n",sizeof(*flow));
+   *valid_bytes += len;
+   low_bytes[minor] = *valid_bytes;
+   print_stream(*flow,*valid_bytes,prioMode);
+   printk("Finr della write,risultano\nlen:%ld\nbuff:%s\nvalidBytes:%d\nflow:%s\nminor:%d\nprioMode:%s\n",len,buff,*valid_bytes,*flow,minor,prioMode);
 }
 
 void work_function(struct work_struct *work)
@@ -127,45 +143,27 @@ void work_function(struct work_struct *work)
    minor = get_minor(info->filp);
    the_object = objects + minor;
    s = (info->filp)->private_data;
-
-   mutex_lock(&(the_object->mutex_lo));
    
    // Only low priority operations possible here
-   info->off = the_object->valid_bytes_lo;
-   the_object->low_priority_flow = krealloc(the_object->low_priority_flow,(the_object->valid_bytes_lo)+info->len,GFP_KERNEL);
-   memset(the_object->low_priority_flow + the_object->valid_bytes_lo,0,info->len);
-   strncat(the_object->low_priority_flow,info->buff,info->len);
-   info->off += info->len;
-   the_object->valid_bytes_lo = (info->off);
-   low_bytes[minor] = the_object->valid_bytes_lo;
-   free_page((unsigned long)info->buff);
-   kfree(info);
-   print_streams(the_object->low_priority_flow,the_object->high_priority_flow,the_object->valid_bytes_lo,the_object->valid_bytes_hi);
+   mutex_lock(&(the_object->mutex_lo));
+   do_write(info->len,info->buff, &the_object->valid_bytes_lo, &the_object->low_priority_flow, minor,LOW_PRIORITY);
    mutex_unlock(&(the_object->mutex_lo));
    wake_up(&(the_object->low_prio_queue));
-
-   return;
+   free_page((unsigned long)info->buff);
+   kfree(info);
 }
 
-void prepare_deferred_work(struct file *filp, size_t len, char* temp_buff, int ret)
+void prepare_deferred_work(struct file *filp, size_t len, char* temp_buff, int ret, packed_work *info)
 {
-   packed_work *info = kzalloc(sizeof(packed_work), GFP_ATOMIC);
-   if (ALLOCATION_FAILED(info))
-   {
-      printk("%s: ERROR - deferred work structure allocation failed.\n", MODNAME);
-      kfree(temp_buff);
-      return;
-   }
    info->filp = filp;
    info->len = len;
    info->buff = (char *)__get_free_page(GFP_KERNEL);
    strncpy(info->buff,temp_buff,info->len);
    info->len -= ret;//if some bytes were not written
-   kfree(temp_buff);
-
+   
    __INIT_WORK(&(info->work), work_function, (unsigned long)(&(info->work)));
    schedule_work(&(info->work));
-   return;
+   kfree(temp_buff);
 }
 
 /*
@@ -182,7 +180,7 @@ static int dev_open(struct inode *inode, struct file *file)
    if (minor >= MINORS)
    {
       printk("%s: ERROR - minor number %d out of handled range.\n", MODNAME, minor);
-      return -1;
+      return -ENODEV;
    }
    if(devices_state[minor] == 1)
    {
@@ -192,7 +190,7 @@ static int dev_open(struct inode *inode, struct file *file)
    else
    {
       printk("%s: ERROR - requested device with minor number %d is currently disabled.\n", MODNAME, minor);
-      return -1;
+      return -EACCES;
    }
 }
 
@@ -211,6 +209,7 @@ static ssize_t dev_write(struct file *filp, const char *buff, size_t len, loff_t
    int ret;
    int written_bytes;
    int lock_taken;
+   packed_work *info;
    int minor = get_minor(filp);
    object_state *the_object = objects + minor;
    session *s = filp->private_data;
@@ -221,7 +220,17 @@ static ssize_t dev_write(struct file *filp, const char *buff, size_t len, loff_t
    if (ALLOCATION_FAILED(temp_buff))
    {
       printk("%s: ERROR - temporary structure allocation failed.\n", MODNAME);
-      return 0;   //No bytes have been copied yet
+      return -EINVAL;   //Could not allocate temporary buffer to perform the write operation
+   }
+   if(NOT(highPriority))
+   {
+      info = kzalloc(sizeof(packed_work), GFP_ATOMIC);
+      if (ALLOCATION_FAILED(info))
+      {
+         printk("%s: ERROR - deferred work structure allocation failed.\n", MODNAME);
+         kfree(temp_buff);
+         return -EINVAL;   //Could not allocate temporary buffer to perform the write operation
+      }
    }
    ret = copy_from_user(temp_buff, buff, len);  //Write in a temporary buffer to avoid blocked kernel threads
    written_bytes = len-ret;
@@ -234,7 +243,7 @@ static ssize_t dev_write(struct file *filp, const char *buff, size_t len, loff_t
    if(NOT(highPriority))   
    {
       // Deferred work
-      prepare_deferred_work(filp, len, temp_buff, ret);
+      prepare_deferred_work(filp, len, temp_buff, ret, info);
       return written_bytes;   //Deferred work should not fail
    }
 
@@ -248,7 +257,7 @@ static ssize_t dev_write(struct file *filp, const char *buff, size_t len, loff_t
       {
          printk("%s: REQUEST TIMEOUT - the requested write ('%s') on minor %d will not be performed.\n", MODNAME, buff, minor);
          kfree(temp_buff);
-         return 0;
+         return 0;   //No bytes have been written on fd
       }
    }
    else  // Non-blocking mode
@@ -258,24 +267,16 @@ static ssize_t dev_write(struct file *filp, const char *buff, size_t len, loff_t
       {
          printk("%s: RESOURCE BUSY - the requested write ('%s') on minor %d will not be performed.\n", MODNAME, buff, minor);
          kfree(temp_buff);
-         return 0;
+         return 0;   //No bytes have been written on fd
       }
    }
 
    // Only high priority operations possible here
-   *off = the_object->valid_bytes_hi;
-   the_object->high_priority_flow = krealloc(the_object->high_priority_flow,(the_object->valid_bytes_hi)+written_bytes,GFP_KERNEL);
-   memset(the_object->high_priority_flow + the_object->valid_bytes_hi,0,written_bytes);
-   strncat(the_object->high_priority_flow,temp_buff,written_bytes);
-   kfree(temp_buff);
-   *off += written_bytes;
-   the_object->valid_bytes_hi = *off;
-   high_bytes[minor] = the_object->valid_bytes_hi;
-   print_streams(the_object->low_priority_flow,the_object->high_priority_flow, the_object->valid_bytes_lo,the_object->valid_bytes_hi);
-
+   do_write(len,buff, &the_object->valid_bytes_hi, &the_object->high_priority_flow, minor,HIGH_PRIORITY);
    mutex_unlock(&(the_object->mutex_hi));
    wake_up(&(the_object->high_prio_queue));
 
+   kfree(temp_buff);
    return written_bytes;
 }
 
@@ -285,12 +286,14 @@ static ssize_t dev_read(struct file *filp, char *buff, size_t len, loff_t *off)
    // Blocking mode = waits for lock to go on, Non-blocking mode = doesn't wait for lock if busy and returns
    int *selected_waiting_array;
    int *selected_bytes_array;
-   struct mutex *selected_mutex;
-   char *selected_flow;
    int *selected_valid_bytes;
-   int ret;
-   int lock_taken;
+   char *selected_flow;
+   char *selected_prio;
+   struct mutex *selected_mutex;
+   wait_queue_head_t *selected_wait_queue;
    int delivered_bytes;
+   int lock_taken;
+   int ret;
    int minor = get_minor(filp);
    object_state *the_object = objects + minor;
    session *s = filp->private_data;
@@ -300,26 +303,25 @@ static ssize_t dev_read(struct file *filp, char *buff, size_t len, loff_t *off)
    printk("%s: READ CALLED ON [MAJ-%d,MIN-%d]\n", MODNAME, get_major(filp), get_minor(filp));
    printk("%s: \nPriority mode = %d\nBlocking mode = %d\nValid bytes (low priority stream) = %d\nValid bytes (high priority stream) = %d\n", MODNAME, highPriority, s->blockingModeOn, the_object->valid_bytes_lo, the_object->valid_bytes_hi);
 
-   ASSIGN_VALUE(selected_waiting_array,low_waiting,high_waiting,highPriority);
-   ASSIGN_VALUE(selected_valid_bytes,low_bytes,high_bytes,highPriority);
-   ASSIGN_VALUE(selected_flow,the_object->low_priority_flow,the_object->high_priority_flow,highPriority);
+   SELECT_EQUAL(selected_waiting_array,low_waiting,high_waiting,highPriority);
+   SELECT_EQUAL(selected_valid_bytes,low_bytes,high_bytes,highPriority);
+   SELECT_EQUAL(selected_flow,the_object->low_priority_flow,the_object->high_priority_flow,highPriority);
+   SELECT_EQUAL(selected_prio,LOW_PRIORITY,HIGH_PRIORITY,highPriority);
    ASSIGN_ADDRESS(selected_mutex,the_object->mutex_lo,the_object->mutex_hi,highPriority);
    ASSIGN_ADDRESS(selected_valid_bytes,the_object->valid_bytes_lo,the_object->valid_bytes_hi,highPriority);
+   ASSIGN_ADDRESS(selected_wait_queue,the_object->low_prio_queue,the_object->high_prio_queue,highPriority);
    
    // Lock acquisition phase
    // Blocking mode
    if (blocking)
    {
       __atomic_fetch_add(&selected_waiting_array[minor], 1, __ATOMIC_SEQ_CST);
-      if(NOT(highPriority))
-         lock_taken=wait_event_timeout(the_object->low_prio_queue, mutex_trylock(selected_mutex), s->awake_timeout);
-      else
-         lock_taken=wait_event_timeout(the_object->high_prio_queue, mutex_trylock(selected_mutex), s->awake_timeout);
+      lock_taken=wait_event_timeout(*(selected_wait_queue), mutex_trylock(selected_mutex), s->awake_timeout);
       __atomic_fetch_sub(&selected_waiting_array[minor], 1, __ATOMIC_SEQ_CST);
       if (NOT(lock_taken))
       {
          printk("%s: REQUEST TIMEOUT - the requested read (%ld bytes) on minor %d will not be performed.\n", MODNAME, len, minor);
-         return 0;
+         return 0; //No bytes have been read from fd
       }
       
    } // Non-blocking mode
@@ -329,7 +331,7 @@ static ssize_t dev_read(struct file *filp, char *buff, size_t len, loff_t *off)
          if (NOT(lock_taken))
          {
             printk("%s: RESOURCE BUSY - the requested read (%ld bytes) on minor %d will not be performed.\n", MODNAME, len, minor);
-            return 0;
+            return 0;   //No bytes have been read from fd
          }
    }
    //Lock acquired
@@ -342,20 +344,16 @@ static ssize_t dev_read(struct file *filp, char *buff, size_t len, loff_t *off)
    ret = copy_to_user(buff, &(selected_flow[0]), len);
    delivered_bytes = len-ret;
    memmove(selected_flow, selected_flow + delivered_bytes, *selected_valid_bytes - delivered_bytes);
-   memset(selected_flow+ *selected_valid_bytes - delivered_bytes,0,delivered_bytes);
+   memset(selected_flow + *selected_valid_bytes - delivered_bytes,0,delivered_bytes);
    if(delivered_bytes != 0)
       selected_flow = krealloc(selected_flow,*selected_valid_bytes-delivered_bytes,GFP_KERNEL);
-   selected_valid_bytes -= delivered_bytes;//update valid bytes
+   *selected_valid_bytes -= delivered_bytes;//update valid bytes
    selected_bytes_array = selected_valid_bytes; //update param
 
    printk("%s: READ OPERATION COMPLETED - unread bytes = %d\nDelivered bytes: %s\n",MODNAME,ret,buff);
-   print_streams(the_object->low_priority_flow,the_object->high_priority_flow,the_object->valid_bytes_lo,the_object->valid_bytes_hi);
+   print_stream(selected_flow,*selected_valid_bytes,selected_prio);
    mutex_unlock(selected_mutex);
-   //custom_wake_up(the_object->low_prio_queue,the_object->high_prio_queue,highPriority);
-   if(NOT(highPriority))
-      wake_up(&(the_object->low_prio_queue));
-   else
-      wake_up(&(the_object->high_prio_queue));
+   wake_up(selected_wait_queue);
    return delivered_bytes;
 }
 
@@ -463,4 +461,5 @@ void cleanup_module(void)
    unregister_chrdev(Major, DEVICE_NAME);
    printk("%s: DEVICE WITH MAJOR = %d WAS SUCCESSFULLY UNREGISTERED\n", MODNAME, Major);
    return;
-}
+} 
+

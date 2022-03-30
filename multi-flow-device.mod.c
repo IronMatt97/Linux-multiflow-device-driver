@@ -34,14 +34,21 @@ __used __section("__versions") = {
 	{ 0xcb720829, "__register_chrdev" },
 	{ 0xd9a5ea54, "__init_waitqueue_head" },
 	{ 0x977f511b, "__mutex_init" },
-	{ 0xfb578fc5, "memset" },
 	{ 0x13c49cc2, "_copy_from_user" },
 	{ 0xeb233a45, "__kmalloc" },
 	{ 0xc5b6f236, "queue_work_on" },
 	{ 0x2d3385d3, "system_wq" },
 	{ 0x9166fada, "strncpy" },
 	{ 0x6a5cb5ee, "__get_free_pages" },
+	{ 0x4302d0eb, "free_pages" },
+	{ 0x2ab7989d, "mutex_lock" },
+	{ 0x7a2af7b4, "cpu_number" },
+	{ 0x69af1880, "current_task" },
+	{ 0x2e2b40d2, "strncat" },
 	{ 0xc959d152, "__stack_chk_fail" },
+	{ 0x3eeb2322, "__wake_up" },
+	{ 0x409bcb62, "mutex_unlock" },
+	{ 0xc8dcc62a, "krealloc" },
 	{ 0xb0e602eb, "memmove" },
 	{ 0x6b10bee1, "_copy_to_user" },
 	{ 0x88db9f48, "__check_object_size" },
@@ -51,14 +58,6 @@ __used __section("__versions") = {
 	{ 0xfe487975, "init_wait_entry" },
 	{ 0xf21017d9, "mutex_trylock" },
 	{ 0x800473f, "__cond_resched" },
-	{ 0x3eeb2322, "__wake_up" },
-	{ 0x409bcb62, "mutex_unlock" },
-	{ 0x4302d0eb, "free_pages" },
-	{ 0x2e2b40d2, "strncat" },
-	{ 0xc8dcc62a, "krealloc" },
-	{ 0x2ab7989d, "mutex_lock" },
-	{ 0x7a2af7b4, "cpu_number" },
-	{ 0x69af1880, "current_task" },
 	{ 0xe78dfe6d, "kmem_cache_alloc_trace" },
 	{ 0x595451f1, "kmalloc_caches" },
 	{ 0x37a0cba, "kfree" },
@@ -69,4 +68,4 @@ __used __section("__versions") = {
 MODULE_INFO(depends, "");
 
 
-MODULE_INFO(srcversion, "0A16F48B8ACEB39770AFBF2");
+MODULE_INFO(srcversion, "7EDFFA44CA6254118ECBB29");
