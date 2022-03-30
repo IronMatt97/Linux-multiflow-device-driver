@@ -40,6 +40,8 @@ MODULE_DESCRIPTION("A basic device driver implementing multi-flow devices realiz
 #define EMPTY_BUFF "[empty]"
 #define ALLOCATION_FAILED(x) (x==NULL)
 #define NOT(x) (x==0)
+#define ASSIGN_ADDRESS(data,data_low,data_high,prio) if(NOT(prio)){data=&data_low;}else{data=&data_high;}
+#define ASSIGN_VALUE(data,data_low,data_high,prio) if(NOT(prio)){data=data_low;}else{data=data_high;}
 
 typedef struct _object_state  // This struct represents a single device
 {
@@ -281,10 +283,15 @@ static ssize_t dev_read(struct file *filp, char *buff, size_t len, loff_t *off)
 {
    // Synchronous for both priorities
    // Blocking mode = waits for lock to go on, Non-blocking mode = doesn't wait for lock if busy and returns
-   int minor = get_minor(filp);
+   int *selected_waiting_array;
+   int *selected_bytes_array;
+   struct mutex *selected_mutex;
+   char *selected_flow;
+   int *selected_valid_bytes;
    int ret;
    int lock_taken;
    int delivered_bytes;
+   int minor = get_minor(filp);
    object_state *the_object = objects + minor;
    session *s = filp->private_data;
    int highPriority = s->priorityMode;
@@ -293,31 +300,21 @@ static ssize_t dev_read(struct file *filp, char *buff, size_t len, loff_t *off)
    printk("%s: READ CALLED ON [MAJ-%d,MIN-%d]\n", MODNAME, get_major(filp), get_minor(filp));
    printk("%s: \nPriority mode = %d\nBlocking mode = %d\nValid bytes (low priority stream) = %d\nValid bytes (high priority stream) = %d\n", MODNAME, highPriority, s->blockingModeOn, the_object->valid_bytes_lo, the_object->valid_bytes_hi);
 
-
+   ASSIGN_VALUE(selected_waiting_array,low_waiting,high_waiting,highPriority);
+   ASSIGN_VALUE(selected_valid_bytes,low_bytes,high_bytes,highPriority);
+   ASSIGN_VALUE(selected_flow,the_object->low_priority_flow,the_object->high_priority_flow,highPriority);
+   ASSIGN_ADDRESS(selected_mutex,the_object->mutex_lo,the_object->mutex_hi,highPriority);
+   ASSIGN_ADDRESS(selected_valid_bytes,the_object->valid_bytes_lo,the_object->valid_bytes_hi,highPriority);
    
-   int *selected_waiting_array;
-   wait_queue_head_t selected_priority_queue;
-   struct mutex *selected_mutex;
-   //TODO - AGGIUNGERE LE ALTRE INFO (flow e valid bytes, cosi sotto puoi fare 1 caso solo per la lettura)
-   if(NOT(highPriority))
-   {
-      selected_waiting_array=low_waiting;
-      selected_priority_queue=the_object->low_prio_queue;
-      selected_mutex=&the_object->mutex_lo;
-   }
-   else
-   {
-      selected_waiting_array=high_waiting;
-      selected_priority_queue=the_object->high_prio_queue;
-      selected_mutex=&the_object->mutex_hi;
-   }
-
    // Lock acquisition phase
    // Blocking mode
    if (blocking)
    {
       __atomic_fetch_add(&selected_waiting_array[minor], 1, __ATOMIC_SEQ_CST);
-      lock_taken = wait_event_timeout(selected_priority_queue, mutex_trylock((selected_mutex)), s->awake_timeout);
+      if(NOT(highPriority))
+         lock_taken=wait_event_timeout(the_object->low_prio_queue, mutex_trylock(selected_mutex), s->awake_timeout);
+      else
+         lock_taken=wait_event_timeout(the_object->high_prio_queue, mutex_trylock(selected_mutex), s->awake_timeout);
       __atomic_fetch_sub(&selected_waiting_array[minor], 1, __ATOMIC_SEQ_CST);
       if (NOT(lock_taken))
       {
@@ -338,47 +335,27 @@ static ssize_t dev_read(struct file *filp, char *buff, size_t len, loff_t *off)
    //Lock acquired
 
    //If the read request size is bigger than valid bytes present
-   if ((!highPriority && the_object->valid_bytes_lo < len))
-      len = the_object->valid_bytes_lo;
-   else if ((highPriority && the_object->valid_bytes_hi < len))
-      len = the_object->valid_bytes_hi;
+   if (*selected_valid_bytes < len)
+      len = *selected_valid_bytes;
    
-
    // In order to perform a read the sequence is: copy to user, move the remaining string to the beginning of the stream, clean the final part.
-   if (highPriority)
-   {
-      ret = copy_to_user(buff, &(the_object->high_priority_flow[0]), len);
-      delivered_bytes = len-ret;
-      memmove(the_object->high_priority_flow, (the_object->high_priority_flow) + (delivered_bytes),(the_object->valid_bytes_hi) - (delivered_bytes));
-      memset(the_object->high_priority_flow + the_object->valid_bytes_hi - delivered_bytes,0,delivered_bytes);
-      if(delivered_bytes != 0)
-         the_object->high_priority_flow = krealloc(the_object->high_priority_flow,(the_object->valid_bytes_hi)-delivered_bytes,GFP_KERNEL);
-      the_object->valid_bytes_hi -= delivered_bytes;//update valid bytes
-      high_bytes[minor] = the_object->valid_bytes_hi; //update param
+   ret = copy_to_user(buff, &(selected_flow[0]), len);
+   delivered_bytes = len-ret;
+   memmove(selected_flow, selected_flow + delivered_bytes, *selected_valid_bytes - delivered_bytes);
+   memset(selected_flow+ *selected_valid_bytes - delivered_bytes,0,delivered_bytes);
+   if(delivered_bytes != 0)
+      selected_flow = krealloc(selected_flow,*selected_valid_bytes-delivered_bytes,GFP_KERNEL);
+   selected_valid_bytes -= delivered_bytes;//update valid bytes
+   selected_bytes_array = selected_valid_bytes; //update param
 
-      printk("%s: READ OPERATION COMPLETED - unread bytes = %d\nDelivered bytes: %s\n",MODNAME,ret,buff);
-      print_streams(the_object->low_priority_flow,the_object->high_priority_flow,the_object->valid_bytes_lo,the_object->valid_bytes_hi);
-      
-      mutex_unlock(&(the_object->mutex_hi));
-      wake_up(&(the_object->high_prio_queue));
-   }
-   else
-   {
-      ret = copy_to_user(buff, &(the_object->low_priority_flow[0]), len);
-      delivered_bytes = len-ret;
-      memmove(the_object->low_priority_flow, (the_object->low_priority_flow) + (delivered_bytes),(the_object->valid_bytes_lo) - (delivered_bytes));
-      memset(the_object->low_priority_flow + the_object->valid_bytes_lo - delivered_bytes,0,delivered_bytes);
-      if(delivered_bytes != 0)
-         the_object->low_priority_flow = krealloc(the_object->low_priority_flow,(the_object->valid_bytes_lo)-delivered_bytes,GFP_KERNEL);
-      the_object->valid_bytes_lo -= delivered_bytes;
-      low_bytes[minor] = the_object->valid_bytes_lo;
-
-      printk("%s: READ OPERATION COMPLETED - unread bytes = %d\nDelivered bytes: %s\n",MODNAME,ret,buff);
-      print_streams(the_object->low_priority_flow,the_object->high_priority_flow,the_object->valid_bytes_lo,the_object->valid_bytes_hi);   
-      
-      mutex_unlock(&(the_object->mutex_lo));
+   printk("%s: READ OPERATION COMPLETED - unread bytes = %d\nDelivered bytes: %s\n",MODNAME,ret,buff);
+   print_streams(the_object->low_priority_flow,the_object->high_priority_flow,the_object->valid_bytes_lo,the_object->valid_bytes_hi);
+   mutex_unlock(selected_mutex);
+   //custom_wake_up(the_object->low_prio_queue,the_object->high_prio_queue,highPriority);
+   if(NOT(highPriority))
       wake_up(&(the_object->low_prio_queue));
-   }
+   else
+      wake_up(&(the_object->high_prio_queue));
    return delivered_bytes;
 }
 
