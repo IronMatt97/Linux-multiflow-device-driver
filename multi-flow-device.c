@@ -7,6 +7,7 @@
 *
 * @date March 1, 2022
 */
+
 #define EXPORT_SYMTAB
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -26,10 +27,12 @@ MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Matteo Ferretti <matti1097@gmail.com>");
 MODULE_DESCRIPTION("A basic device driver implementing multi-flow devices realized for academic purpose.");
 
+//Some helpful predefined strings
 #define MODNAME "MULTI-FLOW-DEVICE"
 #define DEVICE_NAME "mfdev"
 #define LOW_PRIORITY "LOW"
 #define HIGH_PRIORITY "HIGH"
+#define EMPTY_BUFF "[empty]"
 
 #define get_major(session) MAJOR(session->f_inode->i_rdev)  //MAJOR number
 #define get_minor(session) MINOR(session->f_inode->i_rdev)  //MINOR number
@@ -38,7 +41,7 @@ MODULE_DESCRIPTION("A basic device driver implementing multi-flow devices realiz
 #define DEFAULT_BLOCKING_MODE 0  //Default blocking mode of RW operations for a device (0 = non-blocking - 1 = blocking)
 #define DEFAULT_PRIORITY_MODE 0  //Default priority mode for a device (0 = low priority usage - 1 = high priority usage)
 
-#define EMPTY_BUFF "[empty]"
+//Some useful pre-defined macros
 #define ALLOCATION_FAILED(x) (x==NULL)
 #define NOT(x) (x==0)
 #define ASSIGN_ADDRESS(data,data_low,data_high,prio) if(NOT(prio)){data=&data_low;}else{data=&data_high;}
@@ -98,7 +101,7 @@ MODULE_PARM_DESC(low_bytes, "Array reporting the number of current valid bytes i
 MODULE_PARM_DESC(high_waiting, "Array describing the number of threads waiting on the high priority stream of every device.");
 MODULE_PARM_DESC(low_waiting, "Array describing the number of threads waiting on the low priority stream of every device.");
 
-void print_streams(char *low_stream,char *high_stream,int low_bytes, int high_bytes)
+void print_streams(char *low_stream,char *high_stream,int low_bytes, int high_bytes)   //Streams printing function
 {
    char * l;
    char * h;
@@ -114,45 +117,46 @@ void print_streams(char *low_stream,char *high_stream,int low_bytes, int high_by
    printk("%s: --------------------\nFLOWS UPDATED:\nLOW_PRIORITY_FLOW: %s\nHIGH_PRIORITY_FLOW: %s\n---------------------------------------\n", MODNAME,l,h);
 }
 
-void do_write(ssize_t len, const char *buff, int *valid_bytes, char** flow, int minor, char* prioMode)
+void do_write(ssize_t len, const char *buff, int *valid_bytes, char** flow, int minor, char* prioMode)   //write logic function
 {
-   *flow = krealloc(*flow,*valid_bytes+len,GFP_KERNEL);
-   memset(*flow + *valid_bytes,0,len);
-   strncat(*flow,buff,len);
-   *valid_bytes += len;
-   if(strcmp(prioMode,LOW_PRIORITY) == 0)
+   *flow = krealloc(*flow,*valid_bytes+len,GFP_KERNEL);  //allocate new space for the write
+   memset(*flow + *valid_bytes,0,len); //initialize the new memory to a clean state
+   strncat(*flow,buff,len);   //attach the new string to the flow
+   *valid_bytes += len; //Increment the valid bytes quantity in the object
+   if(strcmp(prioMode,LOW_PRIORITY) == 0) //update kernel params
       low_bytes[minor] = *valid_bytes;
    else
       high_bytes[minor] = *valid_bytes;
    printk("%s: ||| WRITE OPERATION COMPLETED. |||\n",MODNAME);
 }
-int do_read(int len, int ret, char **buff, char **selected_flow, int *selected_valid_bytes, int minor, char *selected_prio)
+int do_read(int len, int ret, char **buff, char **selected_flow, int *selected_valid_bytes, int minor, char *selected_prio)   //read logic function
 {
    int delivered_bytes;
   
-   //If the read request size is bigger than valid bytes present
+   //If the read request size is bigger than valid bytes present only read how many bytes possible
    if (*selected_valid_bytes < len)
       len = *selected_valid_bytes;
 
    // In order to perform a read the sequence is: copy to user, move the remaining string to the beginning of the stream, clean the final part.
-   ret = copy_to_user(*buff, selected_flow[0], len);
+   ret = copy_to_user(*buff, selected_flow[0], len);  //copy the information to user space
+   if (ret!=0)
+      printk("%s: The read was partial due to a problem.\n",MODNAME);
    delivered_bytes = len-ret;
-   memmove(*selected_flow, *selected_flow + delivered_bytes, *selected_valid_bytes - delivered_bytes);
-   memset(*selected_flow + *selected_valid_bytes - delivered_bytes,0,delivered_bytes);
-   if(delivered_bytes != 0)
-      *selected_flow = krealloc(*selected_flow,*selected_valid_bytes-delivered_bytes,GFP_KERNEL);
-   *selected_valid_bytes -= delivered_bytes;//update valid bytes
-   if(strcmp(selected_prio,LOW_PRIORITY) == 0)
+   memmove(*selected_flow, *selected_flow + delivered_bytes, *selected_valid_bytes - delivered_bytes);   //copy the remaining unread flow to the beginning
+   memset(*selected_flow + *selected_valid_bytes - delivered_bytes,0,delivered_bytes); //clean the final redundant part
+   if(delivered_bytes != 0)   //do not reallocate memory size if no bytes were actually delivered
+      *selected_flow = krealloc(*selected_flow,*selected_valid_bytes-delivered_bytes,GFP_KERNEL);  //resize the memory in order to deallocate the final part
+   *selected_valid_bytes -= delivered_bytes; //update valid bytes
+   if(strcmp(selected_prio,LOW_PRIORITY) == 0)  //update module params
       low_bytes[minor] = *selected_valid_bytes;
    else
-      high_bytes[minor] = *selected_valid_bytes; //update param
+      high_bytes[minor] = *selected_valid_bytes;
    printk("%s: ||| READ OPERATION COMPLETED. |||\n",MODNAME);
    return delivered_bytes;
 }
 
-void work_function(struct work_struct *work)
+void work_function(struct work_struct *work) // Implementation of deferred work
 {
-   // Implementation of deferred work
    int minor;
    packed_work *info;
    object_state *the_object;
@@ -160,31 +164,31 @@ void work_function(struct work_struct *work)
 
    printk("%s: [KWORKER DAEMON RUNNING - PID = %d - CPU-core = %d]\n",MODNAME,current->pid,smp_processor_id());
 
-   info = container_of(work, packed_work, work);
+   info = container_of(work, packed_work, work);   //retrieve the info struct in order to use all the prepared informations
    minor = get_minor(info->filp);
    the_object = objects + minor;
    s = (info->filp)->private_data;
    
-   // Only low priority operations possible here
+   // Actual logic: only low priority operations possible here
    mutex_lock(&(the_object->mutex_lo));
-   do_write(info->len,info->buff, &the_object->valid_bytes_lo, &the_object->low_priority_flow, minor,LOW_PRIORITY);
-   print_streams(the_object->low_priority_flow,the_object->high_priority_flow,the_object->valid_bytes_lo, the_object->valid_bytes_hi);
+   do_write(info->len,info->buff, &the_object->valid_bytes_lo, &the_object->low_priority_flow, minor,LOW_PRIORITY);  //Perform the write operation
+   print_streams(the_object->low_priority_flow,the_object->high_priority_flow,the_object->valid_bytes_lo, the_object->valid_bytes_hi); //Print results
    mutex_unlock(&(the_object->mutex_lo));
    wake_up(&(the_object->low_prio_queue));
    free_page((unsigned long)info->buff);
    kfree(info);
 }
 
-void prepare_deferred_work(struct file *filp, size_t len, char** temp_buff, int ret, packed_work *info)
+void prepare_deferred_work(struct file *filp, size_t len, char** temp_buff, int ret, packed_work *info)  //Function used to prepare work structs before queuing the work
 {
-   info->filp = filp;
+   info->filp = filp;   //struct preparation
    info->len = len;
    info->buff = (char *)__get_free_page(GFP_KERNEL);
    strncpy(info->buff,*temp_buff,info->len);
-   info->len -= ret;//if some bytes were not written
+   info->len -= ret;//if some bytes were not written decrease the len to read in order to avoid memory sizing problems
    
-   __INIT_WORK(&(info->work), work_function, (unsigned long)(&(info->work)));
-   schedule_work(&(info->work));
+   __INIT_WORK(&(info->work), work_function, (unsigned long)(&(info->work))); //Init the work before queuing it
+   schedule_work(&(info->work)); //Queue the work
    kfree(*temp_buff);
 }
 
@@ -192,14 +196,14 @@ void prepare_deferred_work(struct file *filp, size_t len, char** temp_buff, int 
       DRIVER
 */
 
-static int dev_open(struct inode *inode, struct file *file)
+static int dev_open(struct inode *inode, struct file *file) //What to do when a session to an object is opened
 {
    int minor = get_minor(file);
-   file -> private_data = kzalloc(sizeof(session),GFP_ATOMIC);
+   file -> private_data = kzalloc(sizeof(session),GFP_ATOMIC); //Allocate a session object to store related informations
    ((session*)(file -> private_data)) -> awake_timeout = DEFAULT_BLOCKING_OPS_TIMEOUT*((HZ)/1000000);//HZ = 250 increments every second
    ((session*)(file -> private_data)) -> blockingModeOn = DEFAULT_BLOCKING_MODE;
    ((session*)(file -> private_data)) -> priorityMode = DEFAULT_PRIORITY_MODE; 
-   if (minor >= MINORS)
+   if (minor >= MINORS) //Error handling
    {
       printk("%s: ERROR - minor number %d out of handled range.\n", MODNAME, minor);
       return -ENODEV;
@@ -216,15 +220,15 @@ static int dev_open(struct inode *inode, struct file *file)
    }
 }
 
-static int dev_release(struct inode *inode, struct file *file)
+static int dev_release(struct inode *inode, struct file *file) //What to do when a session is closed
 {
    int minor = get_minor(file);
-   kfree(file->private_data);
+   kfree(file->private_data); //deallocate the session
    printk("%s: CLOSED DEVICE FILE WITH MINOR %d\n", MODNAME, minor);
    return 0;
 }
 
-static ssize_t dev_write(struct file *filp, const char *buff, size_t len, loff_t *off)
+static ssize_t dev_write(struct file *filp, const char *buff, size_t len, loff_t *off) //device driver write operation
 {
    // Synchronous for high and asynchronous (deferred work) for low priority
    // Blocking mode = waits for lock to go on, Non-blocking mode = doesn't wait for lock if busy and returns
@@ -257,7 +261,8 @@ static ssize_t dev_write(struct file *filp, const char *buff, size_t len, loff_t
    ret = copy_from_user(temp_buff, buff, len);  //Write in a temporary buffer to avoid blocked kernel threads
    written_bytes = len-ret;
    printk("%s: WRITE CALLED ON [MAJ-%d,MIN-%d]\n", MODNAME, get_major(filp), get_minor(filp));
-  
+   if (ret!=0)
+      printk("%s: The write was partial due to a problem.\n",MODNAME);
    // Lock acquisition phase
    
    //Low priority
@@ -293,7 +298,7 @@ static ssize_t dev_write(struct file *filp, const char *buff, size_t len, loff_t
    }
 
    // Only high priority operations possible here
-   do_write(len,buff, &the_object->valid_bytes_hi, &the_object->high_priority_flow, minor,HIGH_PRIORITY);
+   do_write(len,buff, &the_object->valid_bytes_hi, &the_object->high_priority_flow, minor,HIGH_PRIORITY);   //----The actual write operation
    print_streams(the_object->low_priority_flow,the_object->high_priority_flow,the_object->valid_bytes_lo, the_object->valid_bytes_hi);
    mutex_unlock(&(the_object->mutex_hi));
    wake_up(&(the_object->high_prio_queue));
@@ -302,7 +307,7 @@ static ssize_t dev_write(struct file *filp, const char *buff, size_t len, loff_t
    return written_bytes;
 }
 
-static ssize_t dev_read(struct file *filp, char *buff, size_t len, loff_t *off)
+static ssize_t dev_read(struct file *filp, char *buff, size_t len, loff_t *off)  //device driver read operation
 {
    // Synchronous for both priorities
    // Blocking mode = waits for lock to go on, Non-blocking mode = doesn't wait for lock if busy and returns
@@ -353,14 +358,14 @@ static ssize_t dev_read(struct file *filp, char *buff, size_t len, loff_t *off)
          }
    }
    //Lock acquired
-   delivered_bytes=do_read(len, ret, &buff, &selected_flow, selected_valid_bytes,minor,selected_prio);
+   delivered_bytes=do_read(len, ret, &buff, &selected_flow, selected_valid_bytes,minor,selected_prio);   //----The actual read operation
    print_streams(the_object->low_priority_flow,the_object->high_priority_flow,the_object->valid_bytes_lo, the_object->valid_bytes_hi);
    mutex_unlock(selected_mutex);
    wake_up(selected_wait_queue);
    return delivered_bytes;
 }
 
-static long dev_ioctl(struct file *filp, unsigned int command, unsigned long param)
+static long dev_ioctl(struct file *filp, unsigned int command, unsigned long param) //ioctl function: codes exposed
 {
    int minor;
    object_state *the_object;
@@ -375,22 +380,22 @@ static long dev_ioctl(struct file *filp, unsigned int command, unsigned long par
 
    switch (command)
    {
-      case 0:
+      case 0:  //set the priority mode to low
          s->priorityMode = 0;
          break;
-      case 1:
+      case 1:  //set the priority mode to high
          s->priorityMode = 1;
          break;
-      case 6:
+      case 6:  //set operational mode to non-blocking
          s->blockingModeOn = 0;
          break;
-      case 3:
+      case 3:  //set operational mode to blocking
          s->blockingModeOn = 1;
          break;
-      case 4:
+      case 4:  //set the awake timeout for blocking operations
          s->awake_timeout = param*((HZ)/1000000);//HZ = 250 increments every second
          break;
-      case 5:
+      case 5:  //enable or disable a device
          if(devices_state[minor] == 1)
          {
             devices_state[minor] = 0;
@@ -414,7 +419,7 @@ static struct file_operations fops = {
     .release = dev_release,
     .unlocked_ioctl = dev_ioctl};
 
-int init_module(void)
+int init_module(void)   //What to do when the module is loaded
 {
    int i;
    // Driver internal state initialization
@@ -431,7 +436,7 @@ int init_module(void)
       objects[i].valid_bytes_hi = 0;
       objects[i].valid_bytes_lo = 0;
       objects[i].low_priority_flow = NULL;
-      objects[i].low_priority_flow = kzalloc(0,GFP_ATOMIC);
+      objects[i].low_priority_flow = kzalloc(0,GFP_ATOMIC); //The stream allocation will be dynamic, and operated on demand. Empty-initialized
       objects[i].high_priority_flow = NULL;
       objects[i].high_priority_flow = kzalloc(0,GFP_ATOMIC);
 
@@ -453,12 +458,12 @@ int init_module(void)
    return 0;
 }
 
-void cleanup_module(void)
+void cleanup_module(void)  //What to do when the module is removed
 {
    int i;
    for (i = 0; i < MINORS; i++)
    {
-      kfree(objects[i].low_priority_flow);
+      kfree(objects[i].low_priority_flow);   //deallocate flows
       kfree(objects[i].high_priority_flow);
    }
    unregister_chrdev(Major, DEVICE_NAME);
