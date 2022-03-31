@@ -13,6 +13,10 @@
 //non lo deallochi davvero quindi.
 //TUTTI GLI ARRAY RICHIEDONO **!!!!
 //Se l'indirizzo di un intero è *, l'indirizzo di un array, di char o int è **!!!RICONTROLLA ANCHE I PARAM!
+
+//Ricontrolla questa cosa dei parametri passati, togli gli spazi dal codice e snellisci.
+//Ricotnrolla il ritorno della read
+//Metti delle stampe fatte meglio, pure coi trattini e che dicano entrambe le code
 #define EXPORT_SYMTAB
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -112,21 +116,45 @@ void print_stream(char *stream,int bytes,char *flowType)
    else
       s=stream;
 
-   printk("%s: WRITE OPERATION COMPLETED\nUPDATED FLOW\n%s_PRIORITY_FLOW: %s\nVALID_BYTES: %d\n", MODNAME,flowType,stream,bytes);
+   printk("%s: WRITE OPERATION COMPLETED\nUPDATED FLOW\n%s_PRIORITY_FLOW: %s\nVALID_BYTES: %d\n", MODNAME,flowType,s,bytes);
 }
 
 void do_write(ssize_t len, const char *buff, int *valid_bytes, char** flow, int minor, char *prioMode)
 {
-   printk("Entrato nella write,risultano\nlen:%ld\nbuff:%s\nvalidBytes:%d\nflow:%s\nminor:%d\nprioMode:%s\n",len,buff,*valid_bytes,*flow,minor,prioMode);
-   printk("La stringa prima della krealloc ha lunghezza %ld\n",sizeof(*flow));
    *flow = krealloc(*flow,*valid_bytes+len,GFP_KERNEL);
    memset(*flow + *valid_bytes,0,len);
    strncat(*flow,buff,len);
-   printk("La stringa dopo la krealloc ha lunghezza %ld\n",sizeof(*flow));
    *valid_bytes += len;
    low_bytes[minor] = *valid_bytes;
    print_stream(*flow,*valid_bytes,prioMode);
-   printk("Finr della write,risultano\nlen:%ld\nbuff:%s\nvalidBytes:%d\nflow:%s\nminor:%d\nprioMode:%s\n",len,buff,*valid_bytes,*flow,minor,prioMode);
+}
+int do_read(int len, int ret, char **buff, char **selected_flow, int *selected_valid_bytes, int **selected_bytes_array,char *selected_prio)
+{
+   int delivered_bytes;
+  
+   //If the read request size is bigger than valid bytes present
+   if (*selected_valid_bytes < len)
+      len = *selected_valid_bytes;
+   
+   // In order to perform a read the sequence is: copy to user, move the remaining string to the beginning of the stream, clean the final part.
+   ret = copy_to_user(*buff, selected_flow[0], len);
+   
+   delivered_bytes = len-ret;
+   
+   memmove(*selected_flow, *selected_flow + delivered_bytes, *selected_valid_bytes - delivered_bytes);
+  
+   memset(*selected_flow + *selected_valid_bytes - delivered_bytes,0,delivered_bytes);
+  
+   if(delivered_bytes != 0)
+      *selected_flow = krealloc(*selected_flow,*selected_valid_bytes-delivered_bytes,GFP_KERNEL);
+   
+   *selected_valid_bytes -= delivered_bytes;//update valid bytes
+   
+   *selected_bytes_array = selected_valid_bytes; //update param
+
+   printk("%s: READ OPERATION COMPLETED - unread bytes = %d\nDelivered bytes: %s\n",MODNAME,ret,*buff);
+   print_stream(*selected_flow,*selected_valid_bytes,selected_prio);
+   return delivered_bytes;
 }
 
 void work_function(struct work_struct *work)
@@ -153,17 +181,17 @@ void work_function(struct work_struct *work)
    kfree(info);
 }
 
-void prepare_deferred_work(struct file *filp, size_t len, char* temp_buff, int ret, packed_work *info)
+void prepare_deferred_work(struct file *filp, size_t len, char** temp_buff, int ret, packed_work *info)
 {
    info->filp = filp;
    info->len = len;
    info->buff = (char *)__get_free_page(GFP_KERNEL);
-   strncpy(info->buff,temp_buff,info->len);
+   strncpy(info->buff,*temp_buff,info->len);
    info->len -= ret;//if some bytes were not written
    
    __INIT_WORK(&(info->work), work_function, (unsigned long)(&(info->work)));
    schedule_work(&(info->work));
-   kfree(temp_buff);
+   kfree(*temp_buff);
 }
 
 /*
@@ -243,7 +271,7 @@ static ssize_t dev_write(struct file *filp, const char *buff, size_t len, loff_t
    if(NOT(highPriority))   
    {
       // Deferred work
-      prepare_deferred_work(filp, len, temp_buff, ret, info);
+      prepare_deferred_work(filp, len, &temp_buff, ret, info);
       return written_bytes;   //Deferred work should not fail
    }
 
@@ -335,23 +363,7 @@ static ssize_t dev_read(struct file *filp, char *buff, size_t len, loff_t *off)
          }
    }
    //Lock acquired
-
-   //If the read request size is bigger than valid bytes present
-   if (*selected_valid_bytes < len)
-      len = *selected_valid_bytes;
-   
-   // In order to perform a read the sequence is: copy to user, move the remaining string to the beginning of the stream, clean the final part.
-   ret = copy_to_user(buff, &(selected_flow[0]), len);
-   delivered_bytes = len-ret;
-   memmove(selected_flow, selected_flow + delivered_bytes, *selected_valid_bytes - delivered_bytes);
-   memset(selected_flow + *selected_valid_bytes - delivered_bytes,0,delivered_bytes);
-   if(delivered_bytes != 0)
-      selected_flow = krealloc(selected_flow,*selected_valid_bytes-delivered_bytes,GFP_KERNEL);
-   *selected_valid_bytes -= delivered_bytes;//update valid bytes
-   selected_bytes_array = selected_valid_bytes; //update param
-
-   printk("%s: READ OPERATION COMPLETED - unread bytes = %d\nDelivered bytes: %s\n",MODNAME,ret,buff);
-   print_stream(selected_flow,*selected_valid_bytes,selected_prio);
+   delivered_bytes=do_read(len, ret, &buff, &selected_flow, selected_valid_bytes, &selected_bytes_array,selected_prio);
    mutex_unlock(selected_mutex);
    wake_up(selected_wait_queue);
    return delivered_bytes;
