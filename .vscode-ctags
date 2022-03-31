@@ -5,6 +5,8 @@
 !_TAG_PROGRAM_NAME	Universal Ctags	/Derived from Exuberant Ctags/
 !_TAG_PROGRAM_URL	https://ctags.io/	/official site/
 !_TAG_PROGRAM_VERSION	0.0.0	//
+ALLOCATION_FAILED	multi-flow-device.c	/^#define ALLOCATION_FAILED(/;"	d	file:
+ASSIGN_ADDRESS	multi-flow-device.c	/^#define ASSIGN_ADDRESS(/;"	d	file:
 BYTES_TO_READ	concurrency_test/concurrency_tester.c	/^#define BYTES_TO_READ /;"	d	file:
 BYTES_TO_READ	functions_test/function_tester.c	/^#define BYTES_TO_READ /;"	d	file:
 BYTES_TO_READ	performance_test/time_tester.c	/^#define BYTES_TO_READ /;"	d	file:
@@ -15,19 +17,23 @@ DEFAULT_PRIORITY_MODE	multi-flow-device.c	/^#define DEFAULT_PRIORITY_MODE /;"	d	
 DEVICE_NAME	multi-flow-device.c	/^#define DEVICE_NAME /;"	d	file:
 EMPTY_BUFF	multi-flow-device.c	/^#define EMPTY_BUFF /;"	d	file:
 EXPORT_SYMTAB	multi-flow-device.c	/^#define EXPORT_SYMTAB$/;"	d	file:
+HIGH_PRIORITY	multi-flow-device.c	/^#define HIGH_PRIORITY /;"	d	file:
 HIGH_PRIORITY_DATA	concurrency_test/concurrency_tester.c	/^#define HIGH_PRIORITY_DATA /;"	d	file:
 HIGH_PRIORITY_DATA	performance_test/time_tester.c	/^#define HIGH_PRIORITY_DATA /;"	d	file:
 HIGH_PRIORITY_DATA_LENGTH	concurrency_test/concurrency_tester.c	/^#define HIGH_PRIORITY_DATA_LENGTH /;"	d	file:
 HIGH_PRIORITY_DATA_LENGTH	performance_test/time_tester.c	/^#define HIGH_PRIORITY_DATA_LENGTH /;"	d	file:
 INTER_TEST_TIME	concurrency_test/concurrency_tester.c	/^#define INTER_TEST_TIME /;"	d	file:
+LOW_PRIORITY	multi-flow-device.c	/^#define LOW_PRIORITY /;"	d	file:
 LOW_PRIORITY_DATA	concurrency_test/concurrency_tester.c	/^#define LOW_PRIORITY_DATA /;"	d	file:
 LOW_PRIORITY_DATA_LENGTH	concurrency_test/concurrency_tester.c	/^#define LOW_PRIORITY_DATA_LENGTH /;"	d	file:
 MINORS	multi-flow-device.c	/^#define MINORS /;"	d	file:
 MODNAME	multi-flow-device.c	/^#define MODNAME /;"	d	file:
 Major	multi-flow-device.c	/^static int Major;$/;"	v	typeref:typename:int	file:
+NOT	multi-flow-device.c	/^#define NOT(/;"	d	file:
 NUM_TESTS	performance_test/time_tester.c	/^#define NUM_TESTS /;"	d	file:
 NUM_THREADS	performance_test/time_tester.c	/^#define NUM_THREADS /;"	d	file:
 REPEAT	functions_test/function_tester.c	/^#define REPEAT /;"	d	file:
+SELECT_EQUAL	multi-flow-device.c	/^#define SELECT_EQUAL(/;"	d	file:
 SIZE	functions_test/function_tester.c	/^#define SIZE /;"	d	file:
 _object_state	multi-flow-device.c	/^typedef struct _object_state  \/\/ This struct represents a single device$/;"	s	file:
 _packed_work	multi-flow-device.c	/^typedef struct _packed_work \/\/ Work structure to write on devices in deferred mode$/;"	s	file:
@@ -57,7 +63,9 @@ dev_write	multi-flow-device.c	/^static ssize_t dev_write(struct file *filp, cons
 devices_state	multi-flow-device.c	/^int devices_state[MINORS];$/;"	v	typeref:typename:int[]
 do_ioctl	functions_test/function_tester.c	/^void do_ioctl(int fd)$/;"	f	typeref:typename:void
 do_read	functions_test/function_tester.c	/^void do_read(int fd)$/;"	f	typeref:typename:void
+do_read	multi-flow-device.c	/^int do_read(int len, int ret, char **buff, char **selected_flow, int *selected_valid_bytes, int /;"	f	typeref:typename:int
 do_write	functions_test/function_tester.c	/^void do_write(int fd)$/;"	f	typeref:typename:void
+do_write	multi-flow-device.c	/^void do_write(ssize_t len, const char *buff, int *valid_bytes, char** flow, int minor, char* pri/;"	f	typeref:typename:void
 filp	multi-flow-device.c	/^   struct file *filp;   \/\/pointer to session$/;"	m	struct:_packed_work	typeref:struct:file *	file:
 fops	multi-flow-device.c	/^static struct file_operations fops = {$/;"	v	typeref:struct:file_operations	file:
 fptr	performance_test/time_tester.c	/^FILE *fptr;$/;"	v	typeref:typename:FILE *
@@ -101,6 +109,7 @@ object_state	multi-flow-device.c	/^} object_state;$/;"	t	typeref:struct:_object_
 objects	multi-flow-device.c	/^object_state objects[MINORS];$/;"	v	typeref:typename:object_state[]
 off	multi-flow-device.c	/^   long long int off;   \/\/session offset$/;"	m	struct:_packed_work	typeref:typename:long long int	file:
 packed_work	multi-flow-device.c	/^} packed_work;$/;"	t	typeref:struct:_packed_work	file:
+prepare_deferred_work	multi-flow-device.c	/^void prepare_deferred_work(struct file *filp, size_t len, char** temp_buff, int ret, packed_work/;"	f	typeref:typename:void
 print_streams	multi-flow-device.c	/^void print_streams(char *low_stream,char *high_stream,int low_bytes, int high_bytes)$/;"	f	typeref:typename:void
 priorityMode	multi-flow-device.c	/^   int priorityMode;                  \/\/ 0 = low priority usage, 1 = high priority usage$/;"	m	struct:session	typeref:typename:int	file:
 r1	concurrency_test/concurrency_tester.c	/^char r1[BYTES_TO_READ];$/;"	v	typeref:typename:char[]

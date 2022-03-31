@@ -342,7 +342,6 @@ static ssize_t dev_read(struct file *filp, char *buff, size_t len, loff_t *off)
          printk("%s: REQUEST TIMEOUT - the requested read (%ld bytes) on minor %d will not be performed.\n", MODNAME, len, minor);
          return 0; //No bytes have been read from fd
       }
-      
    } 
    else  // Non-blocking mode
    {
