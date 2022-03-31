@@ -7,16 +7,6 @@
 *
 * @date March 1, 2022
 */
-///////////////TODO
-//HO SCOPERTO CHE IL CHAR* VA PASSATO COL DOPPIO **, ricontrolla tutte le funzioni a cui passi stringhe con puntatori singoli.
-//Buff_tmp è un inizio di quelli da provar ea cambiare. Intanto cosi runna. Ovviamente, perche tmpbuff lo usi e lobutti. Ma
-//non lo deallochi davvero quindi.
-//TUTTI GLI ARRAY RICHIEDONO **!!!!
-//Se l'indirizzo di un intero è *, l'indirizzo di un array, di char o int è **!!!RICONTROLLA ANCHE I PARAM!
-
-//Ricontrolla questa cosa dei parametri passati, togli gli spazi dal codice e snellisci.
-//Ricotnrolla il ritorno della read
-//Metti delle stampe fatte meglio, pure coi trattini e che dicano entrambe le code
 #define EXPORT_SYMTAB
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -108,52 +98,55 @@ MODULE_PARM_DESC(low_bytes, "Array reporting the number of current valid bytes i
 MODULE_PARM_DESC(high_waiting, "Array describing the number of threads waiting on the high priority stream of every device.");
 MODULE_PARM_DESC(low_waiting, "Array describing the number of threads waiting on the low priority stream of every device.");
 
-void print_stream(char *stream,int bytes,char *flowType)
+void print_streams(char *low_stream,char *high_stream,int low_bytes, int high_bytes)
 {
-   char * s;
-   if(bytes == 0)
-      s=EMPTY_BUFF;
+   char * l;
+   char * h;
+   if(low_bytes == 0)
+      l=EMPTY_BUFF;
    else
-      s=stream;
+      l=low_stream;
+   if(high_bytes == 0)
+      h=EMPTY_BUFF;
+   else
+      h=high_stream;
 
-   printk("%s: WRITE OPERATION COMPLETED\nUPDATED FLOW\n%s_PRIORITY_FLOW: %s\nVALID_BYTES: %d\n", MODNAME,flowType,s,bytes);
+   printk("%s: --------------------\nFLOWS UPDATED:\nLOW_PRIORITY_FLOW: %s\nHIGH_PRIORITY_FLOW: %s\n---------------------------------------\n", MODNAME,l,h);
 }
 
-void do_write(ssize_t len, const char *buff, int *valid_bytes, char** flow, int minor, char *prioMode)
+void do_write(ssize_t len, const char *buff, int *valid_bytes, char** flow, int minor, char* prioMode)
 {
    *flow = krealloc(*flow,*valid_bytes+len,GFP_KERNEL);
    memset(*flow + *valid_bytes,0,len);
    strncat(*flow,buff,len);
    *valid_bytes += len;
-   low_bytes[minor] = *valid_bytes;
-   print_stream(*flow,*valid_bytes,prioMode);
+   if(strcmp(prioMode,LOW_PRIORITY) == 0)
+      low_bytes[minor] = *valid_bytes;
+   else
+      high_bytes[minor] = *valid_bytes;
+   printk("%s: ||| WRITE OPERATION COMPLETED. |||\n",MODNAME);
 }
-int do_read(int len, int ret, char **buff, char **selected_flow, int *selected_valid_bytes, int **selected_bytes_array,char *selected_prio)
+int do_read(int len, int ret, char **buff, char **selected_flow, int *selected_valid_bytes, int minor, char *selected_prio)
 {
    int delivered_bytes;
   
    //If the read request size is bigger than valid bytes present
    if (*selected_valid_bytes < len)
       len = *selected_valid_bytes;
-   
+
    // In order to perform a read the sequence is: copy to user, move the remaining string to the beginning of the stream, clean the final part.
    ret = copy_to_user(*buff, selected_flow[0], len);
-   
    delivered_bytes = len-ret;
-   
    memmove(*selected_flow, *selected_flow + delivered_bytes, *selected_valid_bytes - delivered_bytes);
-  
    memset(*selected_flow + *selected_valid_bytes - delivered_bytes,0,delivered_bytes);
-  
    if(delivered_bytes != 0)
       *selected_flow = krealloc(*selected_flow,*selected_valid_bytes-delivered_bytes,GFP_KERNEL);
-   
    *selected_valid_bytes -= delivered_bytes;//update valid bytes
-   
-   *selected_bytes_array = selected_valid_bytes; //update param
-
-   printk("%s: READ OPERATION COMPLETED - unread bytes = %d\nDelivered bytes: %s\n",MODNAME,ret,*buff);
-   print_stream(*selected_flow,*selected_valid_bytes,selected_prio);
+   if(strcmp(selected_prio,LOW_PRIORITY) == 0)
+      low_bytes[minor] = *selected_valid_bytes;
+   else
+      high_bytes[minor] = *selected_valid_bytes; //update param
+   printk("%s: ||| READ OPERATION COMPLETED. |||\n",MODNAME);
    return delivered_bytes;
 }
 
@@ -165,7 +158,7 @@ void work_function(struct work_struct *work)
    object_state *the_object;
    session *s;
 
-   printk("%s: KWORKER DAEMON RUNNING - PID = %d - CPU-core = %d\n",MODNAME,current->pid,smp_processor_id());
+   printk("%s: [KWORKER DAEMON RUNNING - PID = %d - CPU-core = %d]\n",MODNAME,current->pid,smp_processor_id());
 
    info = container_of(work, packed_work, work);
    minor = get_minor(info->filp);
@@ -175,6 +168,7 @@ void work_function(struct work_struct *work)
    // Only low priority operations possible here
    mutex_lock(&(the_object->mutex_lo));
    do_write(info->len,info->buff, &the_object->valid_bytes_lo, &the_object->low_priority_flow, minor,LOW_PRIORITY);
+   print_streams(the_object->low_priority_flow,the_object->high_priority_flow,the_object->valid_bytes_lo, the_object->valid_bytes_hi);
    mutex_unlock(&(the_object->mutex_lo));
    wake_up(&(the_object->low_prio_queue));
    free_page((unsigned long)info->buff);
@@ -263,8 +257,7 @@ static ssize_t dev_write(struct file *filp, const char *buff, size_t len, loff_t
    ret = copy_from_user(temp_buff, buff, len);  //Write in a temporary buffer to avoid blocked kernel threads
    written_bytes = len-ret;
    printk("%s: WRITE CALLED ON [MAJ-%d,MIN-%d]\n", MODNAME, get_major(filp), get_minor(filp));
-   printk("%s: \nPriority mode = %d\nBlocking mode = %d\nValid bytes (low priority stream) = %d\nValid bytes (high priority stream) = %d\n", MODNAME, highPriority, s->blockingModeOn, the_object->valid_bytes_lo, the_object->valid_bytes_hi);
-
+  
    // Lock acquisition phase
    
    //Low priority
@@ -301,6 +294,7 @@ static ssize_t dev_write(struct file *filp, const char *buff, size_t len, loff_t
 
    // Only high priority operations possible here
    do_write(len,buff, &the_object->valid_bytes_hi, &the_object->high_priority_flow, minor,HIGH_PRIORITY);
+   print_streams(the_object->low_priority_flow,the_object->high_priority_flow,the_object->valid_bytes_lo, the_object->valid_bytes_hi);
    mutex_unlock(&(the_object->mutex_hi));
    wake_up(&(the_object->high_prio_queue));
 
@@ -313,7 +307,6 @@ static ssize_t dev_read(struct file *filp, char *buff, size_t len, loff_t *off)
    // Synchronous for both priorities
    // Blocking mode = waits for lock to go on, Non-blocking mode = doesn't wait for lock if busy and returns
    int *selected_waiting_array;
-   int *selected_bytes_array;
    int *selected_valid_bytes;
    char *selected_flow;
    char *selected_prio;
@@ -327,21 +320,19 @@ static ssize_t dev_read(struct file *filp, char *buff, size_t len, loff_t *off)
    session *s = filp->private_data;
    int highPriority = s->priorityMode;
    int blocking = s->blockingModeOn;
-   
    printk("%s: READ CALLED ON [MAJ-%d,MIN-%d]\n", MODNAME, get_major(filp), get_minor(filp));
-   printk("%s: \nPriority mode = %d\nBlocking mode = %d\nValid bytes (low priority stream) = %d\nValid bytes (high priority stream) = %d\n", MODNAME, highPriority, s->blockingModeOn, the_object->valid_bytes_lo, the_object->valid_bytes_hi);
-
+ 
+   //Assign each variable depending on priority mode
    SELECT_EQUAL(selected_waiting_array,low_waiting,high_waiting,highPriority);
-   SELECT_EQUAL(selected_valid_bytes,low_bytes,high_bytes,highPriority);
-   SELECT_EQUAL(selected_flow,the_object->low_priority_flow,the_object->high_priority_flow,highPriority);
    SELECT_EQUAL(selected_prio,LOW_PRIORITY,HIGH_PRIORITY,highPriority);
+   SELECT_EQUAL(selected_flow,the_object->low_priority_flow,the_object->high_priority_flow,highPriority);
    ASSIGN_ADDRESS(selected_mutex,the_object->mutex_lo,the_object->mutex_hi,highPriority);
    ASSIGN_ADDRESS(selected_valid_bytes,the_object->valid_bytes_lo,the_object->valid_bytes_hi,highPriority);
    ASSIGN_ADDRESS(selected_wait_queue,the_object->low_prio_queue,the_object->high_prio_queue,highPriority);
    
    // Lock acquisition phase
-   // Blocking mode
-   if (blocking)
+   
+   if (blocking)  // Blocking mode
    {
       __atomic_fetch_add(&selected_waiting_array[minor], 1, __ATOMIC_SEQ_CST);
       lock_taken=wait_event_timeout(*(selected_wait_queue), mutex_trylock(selected_mutex), s->awake_timeout);
@@ -352,8 +343,8 @@ static ssize_t dev_read(struct file *filp, char *buff, size_t len, loff_t *off)
          return 0; //No bytes have been read from fd
       }
       
-   } // Non-blocking mode
-   else
+   } 
+   else  // Non-blocking mode
    {
          lock_taken = mutex_trylock((selected_mutex));
          if (NOT(lock_taken))
@@ -363,7 +354,8 @@ static ssize_t dev_read(struct file *filp, char *buff, size_t len, loff_t *off)
          }
    }
    //Lock acquired
-   delivered_bytes=do_read(len, ret, &buff, &selected_flow, selected_valid_bytes, &selected_bytes_array,selected_prio);
+   delivered_bytes=do_read(len, ret, &buff, &selected_flow, selected_valid_bytes,minor,selected_prio);
+   print_streams(the_object->low_priority_flow,the_object->high_priority_flow,the_object->valid_bytes_lo, the_object->valid_bytes_hi);
    mutex_unlock(selected_mutex);
    wake_up(selected_wait_queue);
    return delivered_bytes;

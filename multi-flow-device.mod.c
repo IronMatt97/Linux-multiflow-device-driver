@@ -56,6 +56,7 @@ __used __section("__versions") = {
 	{ 0x2ab7989d, "mutex_lock" },
 	{ 0x7a2af7b4, "cpu_number" },
 	{ 0x69af1880, "current_task" },
+	{ 0xe2d5255a, "strcmp" },
 	{ 0x2e2b40d2, "strncat" },
 	{ 0xfb578fc5, "memset" },
 	{ 0xc8dcc62a, "krealloc" },
@@ -69,4 +70,4 @@ __used __section("__versions") = {
 MODULE_INFO(depends, "");
 
 
-MODULE_INFO(srcversion, "F37CEAE89989C2E62EA4236");
+MODULE_INFO(srcversion, "C4FEA3F7EB5D23512604B48");
